@@ -50,7 +50,7 @@ keeps the inputs it finds in the existing stub.
 | Workflow | Inputs | Does |
 |---|---|---|
 | `publish-html.yml` | `itch_user` (default `multivoxmuse`), `itch_game` | `npm ci`, Playwright Chromium, `npm test`, upload `index.html` as an artifact; on the default branch only, `butler push --if-changed` to `<user>/<game>:html`. |
-| `publish-love.yml` | `itch_user`, `itch_game`, `game_name`, `test`, `makelove` (default `makelove==0.0.13`), `post_build` | makelove builds love/web/linux/win64/macos, uploads each; on the default branch only, butler pushes the html/linux/windows/osx channels. |
+| `publish-love.yml` | `itch_user`, `itch_game`, `game_name`, `test`, `makelove` (default `makelove==0.0.13`), `post_build` | makelove builds love/web/linux/win64/macos, uploads each; on the default branch only, butler pushes the targets listed in makelove.toml (html, linux, windows, osx). |
 | `epic-merge.yml` | `pr`, `sha` | `epicpr.mjs merge`: the head is still `sha`, no conflict, checks green, then merge with the app token. A refusal is commented on the epic issue as `conflict`, `stale`, `checks-failed` or `ship-failed`. |
 | `epic-finish.yml` | `pr`, `sha`, `itch_url` | `issue-of`, `wait-publish` (the publish run of the merge commit), `verify-itch`, `announce` on Discord, `finish`: comment the outcome (`deployed`, `ship-failed`, `deploy-unverified`) and close the issue when deployed. |
 

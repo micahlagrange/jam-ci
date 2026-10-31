@@ -126,10 +126,10 @@ jobs:
           v="0.1.${{ github.run_number }}+$(git rev-parse --short HEAD)"
           for t in $TARGETS; do
             case "$t" in
-              lovejs)   butler push "makelove-build/lovejs/${GAME_NAME}-lovejs.zip" "$ITCH_TARGET:html" --userversion "$v" --if-changed ;;
-              appimage) butler push "makelove-build/appimage/${GAME_NAME}.AppImage" "$ITCH_TARGET:linux" --userversion "$v" --if-changed ;;
-              win64)    butler push "makelove-build/win64/${GAME_NAME}-win64.zip" "$ITCH_TARGET:windows" --userversion "$v" --if-changed ;;
-              macos)    butler push "makelove-build/macos/${GAME_NAME}-macos.zip" "$ITCH_TARGET:osx" --userversion "$v" --if-changed ;;
+              lovejs)   butler push "makelove-build/lovejs/${GAME_NAME}-lovejs.zip" "$ITCH_TARGET:html" --userversion "$v" ;;
+              appimage) butler push "makelove-build/appimage/${GAME_NAME}.AppImage" "$ITCH_TARGET:linux" --userversion "$v" ;;
+              win64)    butler push "makelove-build/win64/${GAME_NAME}-win64.zip" "$ITCH_TARGET:windows" --userversion "$v" ;;
+              macos)    butler push "makelove-build/macos/${GAME_NAME}-macos.zip" "$ITCH_TARGET:osx" --userversion "$v" ;;
             esac
           done
           butler status "$ITCH_TARGET"
