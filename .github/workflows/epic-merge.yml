@@ -1,0 +1,79 @@
+name: epic-merge
+
+# Merge an epic pull request that the repository owner approved on GitHub.
+# epicpr.mjs merge checks the head is still the approved commit, that the
+# pull request does not conflict and that every check on it passed, then merges
+# with the Jam Hub GitHub App's token (repo secret JAM_HUB_APP_KEY, variable
+# JAM_HUB_APP_ID), so the merge push runs the game's publish workflow; a merge
+# with the default Actions token would not. When the merge is refused, the
+# outcome is commented on the epic issue (the one the pull request says
+# "Refs #N" to) and the pull request stays open.
+on:
+  workflow_call:
+    inputs:
+      pr:
+        description: 'Pull request number'
+        type: string
+        required: true
+      sha:
+        description: 'The commit the approval was given on'
+        type: string
+        required: true
+
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: micahlagrange/jam-ci
+          path: .jam-ci
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - id: app
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.JAM_HUB_APP_ID }}
+          private-key: ${{ secrets.JAM_HUB_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+
+      - name: Merge
+        id: merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Only the merge call uses the app token; the app cannot read checks.
+          GH_MERGE_TOKEN: ${{ steps.app.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set +e
+          node .jam-ci/scripts/epicpr.mjs merge --prs "${{ inputs.pr }}=${{ inputs.sha }}"
+          echo "code=$?" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Find the epic issue
+        id: issue
+        if: steps.merge.outputs.code != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: node .jam-ci/scripts/epicpr.mjs issue-of --pr "${{ inputs.pr }}"
+
+      - name: Report a refused merge on the epic issue
+        if: steps.merge.outputs.code != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          MERGE_CODE: ${{ steps.merge.outputs.code }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          detail=""
+          if [ "$MERGE_CODE" = 3 ]; then outcome=conflict
+          elif [ "$MERGE_CODE" = 4 ]; then outcome=stale
+          elif [ "$MERGE_CODE" = 5 ]; then outcome=checks-failed
+          else outcome=ship-failed; detail="The merge failed; see the run log."
+          fi
+          node .jam-ci/scripts/epicpr.mjs finish --issue "${{ steps.issue.outputs.issue }}" --outcome "$outcome" --sha "${{ inputs.sha }}" --url "$RUN_URL" --detail "$detail"
+          exit 1

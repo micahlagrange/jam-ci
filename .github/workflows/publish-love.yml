@@ -1,0 +1,135 @@
+name: publish-love
+
+# Build a LÖVE game with makelove, run its tests and publish to itch. Which
+# platforms are built and published is `default_targets` in the game's
+# makelove.toml (lovejs, appimage, win64, macos), not this file. Called from a
+# game's .github/workflows/publish.yml stub; see README.md. Butler runs only
+# for the default branch.
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: 'Commit to build; empty means the triggering commit'
+        type: string
+        default: ''
+      game_name:
+        description: 'makelove `name`: the file stem of every build'
+        type: string
+        required: true
+      itch_user:
+        type: string
+        default: multivoxmuse
+      itch_game:
+        description: 'itch project slug'
+        type: string
+        required: true
+      test:
+        description: 'Shell to run before the build; empty skips tests'
+        type: string
+        default: ''
+      makelove:
+        description: 'pip requirement for makelove'
+        type: string
+        default: makelove==0.0.13
+      post_build:
+        description: 'Shell to run after makelove, before upload'
+        type: string
+        default: ''
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GAME_NAME: ${{ inputs.game_name }}
+      ITCH_TARGET: ${{ inputs.itch_user }}/${{ inputs.itch_game }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          submodules: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Read the build targets from makelove.toml
+        id: targets
+        run: |
+          pip install tomli
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import tomli
+          t = tomli.load(open('makelove.toml', 'rb')).get('default_targets', ['lovejs'])
+          print('list=' + ' '.join(t))
+          for k in ('lovejs', 'appimage', 'win64', 'macos'):
+              print(f'{k}={str(k in t).lower()}')
+          PY
+      - name: Install build tools
+        run: |
+          if [ '${{ steps.targets.outputs.win64 }}' = true ] || [ '${{ steps.targets.outputs.appimage }}' = true ]; then
+            sudo apt-get update
+            [ '${{ steps.targets.outputs.win64 }}' = true ] && sudo apt-get install -y wine wine64
+            [ '${{ steps.targets.outputs.appimage }}' = true ] && { sudo apt-get install -y libfuse2t64 || sudo apt-get install -y libfuse2; }
+          fi
+          pip install '${{ inputs.makelove }}'
+      - name: Test
+        if: inputs.test != ''
+        run: ${{ inputs.test }}
+      - name: Build
+        run: python3 -m makelove
+      - name: Post-build
+        if: inputs.post_build != ''
+        run: ${{ inputs.post_build }}
+      - run: ls -ltraR makelove-build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.GAME_NAME }} - love
+          path: makelove-build/love/${{ env.GAME_NAME }}.love
+      - uses: actions/upload-artifact@v4
+        if: steps.targets.outputs.lovejs == 'true'
+        with:
+          name: ${{ env.GAME_NAME }} - web
+          path: makelove-build/lovejs/${{ env.GAME_NAME }}-lovejs.zip
+      - uses: actions/upload-artifact@v4
+        if: steps.targets.outputs.appimage == 'true'
+        with:
+          name: ${{ env.GAME_NAME }} - linux
+          path: makelove-build/appimage/${{ env.GAME_NAME }}.AppImage
+      - uses: actions/upload-artifact@v4
+        if: steps.targets.outputs.win64 == 'true'
+        with:
+          name: ${{ env.GAME_NAME }} - win64
+          path: makelove-build/win64/${{ env.GAME_NAME }}-win64.zip
+      - uses: actions/upload-artifact@v4
+        if: steps.targets.outputs.macos == 'true'
+        with:
+          name: ${{ env.GAME_NAME }} - macos
+          path: makelove-build/macos/${{ env.GAME_NAME }}-macos.zip
+
+      - name: Install butler
+        if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        run: |
+          curl -fsSL -o butler.zip https://github.com/itchio/butler/releases/latest/download/butler-linux-amd64.zip \
+            || curl -fsSL -o butler.zip https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default
+          mkdir -p "$HOME/butler" && unzip -o butler.zip -d "$HOME/butler" && chmod +x "$HOME/butler/butler"
+          echo "$HOME/butler" >> "$GITHUB_PATH"
+      - name: Publish to itch
+        if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_CREDENTIALS }}
+          TARGETS: ${{ steps.targets.outputs.list }}
+        run: |
+          if [ -z "$BUTLER_API_KEY" ]; then
+            echo "::warning::BUTLER_CREDENTIALS is not set, so nothing was pushed to itch."
+            echo "Nothing pushed to itch: the BUTLER_CREDENTIALS secret is missing." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          v="0.1.${{ github.run_number }}+$(git rev-parse --short HEAD)"
+          for t in $TARGETS; do
+            case "$t" in
+              lovejs)   butler push "makelove-build/lovejs/${GAME_NAME}-lovejs.zip" "$ITCH_TARGET:html" --userversion "$v" --if-changed ;;
+              appimage) butler push "makelove-build/appimage/${GAME_NAME}.AppImage" "$ITCH_TARGET:linux" --userversion "$v" --if-changed ;;
+              win64)    butler push "makelove-build/win64/${GAME_NAME}-win64.zip" "$ITCH_TARGET:windows" --userversion "$v" --if-changed ;;
+              macos)    butler push "makelove-build/macos/${GAME_NAME}-macos.zip" "$ITCH_TARGET:osx" --userversion "$v" --if-changed ;;
+            esac
+          done
+          butler status "$ITCH_TARGET"

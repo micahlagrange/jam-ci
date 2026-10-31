@@ -1,0 +1,75 @@
+name: publish-html
+
+# Build, test and publish a single-file HTML game to itch. Called from a game's
+# .github/workflows/publish.yml stub; see README.md. The game's `npm test` is the
+# one place its test command lives. Butler runs only for the default branch.
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: 'Commit to build; empty means the triggering commit'
+        type: string
+        default: ''
+      itch_user:
+        type: string
+        default: multivoxmuse
+      itch_game:
+        description: 'itch project slug'
+        type: string
+        required: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ITCH_TARGET: ${{ inputs.itch_user }}/${{ inputs.itch_game }}:html
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      # The game's tests import the harness from .jam/ (gitignored; the same files
+      # jamci.mjs vend copies there for local runs).
+      - uses: actions/checkout@v4
+        with:
+          repository: micahlagrange/jam-ci
+          path: .jam-ci
+      - run: mkdir -p .jam && cp .jam-ci/scripts/*.mjs .jam/
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Test
+        run: npm test
+
+      - name: Assemble dist
+        run: |
+          mkdir -p dist
+          cp index.html dist/
+          [ -f LICENSE-assets.txt ] && cp LICENSE-assets.txt dist/ || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.itch_game }}-html
+          path: dist
+
+      - name: Install butler
+        if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        run: |
+          curl -fsSL -o butler.zip https://github.com/itchio/butler/releases/latest/download/butler-linux-amd64.zip \
+            || curl -fsSL -o butler.zip https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default
+          mkdir -p "$HOME/butler" && unzip -o butler.zip -d "$HOME/butler" && chmod +x "$HOME/butler/butler"
+          echo "$HOME/butler" >> "$GITHUB_PATH"
+      - name: Publish to itch
+        if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_CREDENTIALS }}
+        run: |
+          if [ -z "$BUTLER_API_KEY" ]; then
+            echo "::warning::BUTLER_CREDENTIALS is not set, so nothing was pushed to itch."
+            echo "Nothing pushed to itch: the BUTLER_CREDENTIALS secret is missing." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          butler push dist "$ITCH_TARGET" --userversion "0.1.${{ github.run_number }}+$(git rev-parse --short HEAD)" --if-changed
+          butler status "$ITCH_TARGET"

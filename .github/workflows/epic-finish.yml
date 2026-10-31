@@ -1,0 +1,81 @@
+name: epic-finish
+
+# The last half of an epic, run when its pull request closes as merged: wait for
+# the game's publish run of the merge commit, check the itch page shows the new
+# build, post the announcement written in the issue to Discord (repo secret
+# DISCORD_WEBHOOK_URL; skipped with a log line when absent), then comment the
+# outcome on the epic issue and close it when deployed. On any failure the issue
+# stays open with an `epic-result` comment.
+on:
+  workflow_call:
+    inputs:
+      pr:
+        description: 'The merged pull request'
+        type: string
+        required: true
+      sha:
+        description: 'Its merge commit'
+        type: string
+        required: true
+      itch_url:
+        description: 'Public itch page; empty skips the itch check'
+        type: string
+        default: ''
+
+env:
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  GH_REPO: ${{ github.repository }}
+  ITCH_URL: ${{ inputs.itch_url }}
+  # 'yourmum' is the shared page token of the not-yet-public itch pages, not a credential.
+  ITCH_PAGE_PASSWORD: ${{ vars.ITCH_PAGE_PASSWORD || 'yourmum' }}
+
+jobs:
+  finish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: micahlagrange/jam-ci
+          path: .jam-ci
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Find the epic issue
+        id: issue
+        run: node .jam-ci/scripts/epicpr.mjs issue-of --pr "${{ inputs.pr }}"
+
+      - name: Wait for the publish run
+        id: publish
+        continue-on-error: true
+        run: node .jam-ci/scripts/epicpr.mjs wait-publish --sha "${{ inputs.sha }}"
+
+      - name: Verify the itch page
+        id: itch
+        if: steps.publish.outcome == 'success' && env.ITCH_URL != ''
+        continue-on-error: true
+        run: node .jam-ci/scripts/epicpr.mjs verify-itch --url "$ITCH_URL" --since "${{ steps.issue.outputs.merged_at }}"
+
+      - name: Announce on Discord
+        id: announce
+        if: steps.itch.outcome == 'success' || (steps.publish.outcome == 'success' && env.ITCH_URL == '')
+        continue-on-error: true
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: node .jam-ci/scripts/epicpr.mjs announce --issue "${{ steps.issue.outputs.issue }}"
+
+      - name: Report on the epic issue
+        if: always() && steps.issue.outcome == 'success'
+        env:
+          PUBLISH: ${{ steps.publish.outcome }}
+          ITCH: ${{ steps.itch.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          detail=""
+          if [ "$PUBLISH" != success ]; then outcome=ship-failed; detail="The publish run failed or never started."
+          elif [ "$ITCH" = skipped ] || [ "$ITCH" = success ]; then outcome=deployed
+          else outcome=deploy-unverified; detail="The publish run succeeded but the itch page has not shown the new build yet."
+          fi
+          node .jam-ci/scripts/epicpr.mjs finish --issue "${{ steps.issue.outputs.issue }}" --outcome "$outcome" --sha "${{ inputs.sha }}" --url "$RUN_URL" --detail "$detail"
+          [ "$outcome" = deployed ]
