@@ -88,11 +88,16 @@ export function judge(runs = [], statuses = [], ignore = []) {
   return 'pass';
 }
 
+/** Pure: drop the check runs of workflow run `runId`. The merge job runs inside the run it waits on, so
+ *  counting its own check run (always in progress) would make it wait for itself until the timeout. */
+export const withoutRun = (runs = [], runId = '') =>
+  runId ? runs.filter((r) => !String(r.details_url || '').includes(`/actions/runs/${runId}/`)) : runs;
+
 /** Wait until every check on the commit passed. Throws ShipError 5 on a failure, no checks, or a timeout. */
 export function waitChecks(repo, sha, { ignore = [], timeout = 1800000, grace = 180000 } = {}) {
   const start = Date.now();
   for (;;) {
-    const runs = ghJson(['api', `repos/${repo}/commits/${sha}/check-runs?per_page=100`, '-q', '.check_runs']) || [];
+    const runs = withoutRun(ghJson(['api', `repos/${repo}/commits/${sha}/check-runs?per_page=100`, '-q', '.check_runs']) || [], process.env.GITHUB_RUN_ID);
     const statuses = ghJson(['api', `repos/${repo}/commits/${sha}/status`, '-q', '.statuses']) || [];
     const verdict = judge(runs, statuses, ignore);
     log(`checks on ${sha.slice(0, 7)}: ${verdict} (${runs.length} runs)`);
