@@ -26,10 +26,15 @@ export const git = (cwd, ...a) => sh('git', a, cwd);
 /** The GitHub CLI. GH_BIN (+ GH_BIN_ARGS, a JSON array) lets a test stand in a fake.
  *  `env` replaces the child's environment (default: inherit), for a call under another token. */
 export const gh = (args, cwd, timeout = 60000, env = undefined) =>
-  sh(process.env.GH_BIN || 'gh', [...JSON.parse(process.env.GH_BIN_ARGS || '[]'), ...args], cwd, timeout, env);
+  sh(process.env.GH_BIN || 'gh', [...JSON.parse(process.env.GH_BIN_ARGS || '[]'), ...args], cwd, timeout, env ?? ghEnvFor(args));
+
+/** Optional hook: given gh's args, an env to run them under (e.g. the Jam Hub github app's token) or undefined for the
+ *  normal login. Unset in workflows, where GH_TOKEN is already the right token; hub.mjs installs appauth's. */
+let ghEnvFor = () => undefined;
+export const setGhEnvProvider = (fn) => { ghEnvFor = fn || (() => undefined); };
 /** gh whose stdout is JSON; null when it fails or is not JSON. */
-export const ghJson = (args, cwd, timeout) => {
-  const r = gh(args, cwd, timeout);
+export const ghJson = (args, cwd, timeout, env = undefined) => {
+  const r = gh(args, cwd, timeout, env);
   if (r.code) return null;
   try { return JSON.parse(r.stdout); } catch { return null; }
 };
