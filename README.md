@@ -55,8 +55,9 @@ keeps the inputs it finds in the existing stub.
 |---|---|---|
 | `publish-html.yml` | `itch_user` (default `multivoxmuse`), `itch_game` | `npm ci`, Playwright Chromium, `npm test`, upload `index.html` as an artifact; on the default branch only, `butler push --if-changed` to `<user>/<game>:html`. |
 | `publish-love.yml` | `itch_user`, `itch_game`, `game_name`, `test`, `makelove` (default `makelove==0.0.13`), `post_build` | makelove builds love/web/linux/win64/macos, uploads each; on the default branch only, butler pushes the targets listed in makelove.toml (html, linux, windows, osx). |
+| `publish-unity.yml` | `build_script` (`webgl.ps1`), `build_dir` (`Builds/WebGL`), `live_url` (the :10000 Funnel link) | Runs on the self-hosted runner `boogie`: builds WebGL with Unity in the runner's own workspace, stamps `build-info.txt` with the commit, uploads the build; on the default branch only, promotes it with `publish.ps1` from the homeserver repo and checks the live site serves that commit. No tests: a clean build is the gate. |
 | `epic-merge.yml` | `pr`, `sha` | `epicpr.mjs merge`: the head is still `sha`, no conflict, checks green, then merge with the app token. A refusal is commented on the epic issue as `conflict`, `stale`, `checks-failed` or `ship-failed`. |
-| `epic-finish.yml` | `pr`, `sha`, `itch_url` | `issue-of`, `wait-publish` (the publish run of the merge commit), `verify-itch`, `announce` on Discord, `finish`: comment the outcome (`deployed`, `ship-failed`, `deploy-unverified`) and close the issue when deployed. |
+| `epic-finish.yml` | `pr`, `sha`, `itch_url`, `play_url` | `issue-of`, `wait-publish` (the publish run of the merge commit), `verify-itch`, `announce` on Discord, `finish`: comment the outcome (`deployed`, `ship-failed`, `deploy-unverified`) and close the issue when deployed. |
 
 Publishing happens only when `github.ref` is the caller's default branch; every
 other push builds and tests. Nothing here calls an AI service.
@@ -71,6 +72,19 @@ other push builds and tests. Nothing here calls an AI service.
   (`micahlagrange-jam-hub`), which `epic-merge` merges with. Missing: the merge job fails.
 
 `secrets: inherit` in the stubs passes them through.
+
+## Unity games (Cryptid Curios)
+
+A Unity game cannot build on GitHub's runners (the editor and its licence are on `boogie`) and is not on itch; it is played from the WebGL live server. Vend it with `node game-jam/scripts/jamci.mjs vend <project> --kind unity`: the `publish.yml` stub calls `publish-unity.yml` and the `epic.yml` stub passes `play_url` instead of `itch_url`, so `epic-finish` skips the itch check and puts the live link in the announcement. Everything else in the epic flow is unchanged.
+
+One-time setup on `boogie`:
+
+- Register a GitHub Actions runner for the game repo (Settings > Actions > Runners) with the label `boogie`, installed as a service that runs as Micah's Windows user (Unity is activated there). Set `HOMESERVER_DIR` in the runner's `.env` if the homeserver checkout is not `~\Documents\github\homeserver`.
+- The repo must be private. A self-hosted runner runs the code of every pull request against it.
+- The repo commits `webgl.ps1` and `Assets/Editor/PlaytestBuild.cs` (see the `unity-webgl-deploy` skill).
+- Secrets `JAM_HUB_APP_KEY` / variable `JAM_HUB_APP_ID` as for any game; `BUTLER_CREDENTIALS` is not used.
+
+Approving the pull request is the decision to publish to the public Funnel link. If the runner is offline, the build check never completes and `epic-merge` refuses to merge; start the runner service and re-run the workflow.
 
 ## Mirroring
 

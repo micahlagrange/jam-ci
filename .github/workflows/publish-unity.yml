@@ -1,0 +1,90 @@
+name: publish-unity
+
+# Build a Unity game for WebGL on Micah's PC (`boogie`) and publish it to the
+# public WebGL live server. Called from a game's .github/workflows/publish.yml
+# stub; see README.md. It runs on the self-hosted runner labelled `boogie`
+# because the Unity editor and its licence are there, and so is the live
+# server. Use it only from a PRIVATE repo: a pull request from a fork would
+# otherwise run its code on that machine.
+#
+# Every push builds (that is the check epic-merge waits for); only the default
+# branch promotes the build to the live folder. The build runs in the runner's
+# own workspace, never in Micah's Unity project, so an open editor does not
+# block it. Unity has no test suite here: a clean WebGL build is the gate.
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: 'Commit to build; empty means the triggering commit'
+        type: string
+        default: ''
+      build_script:
+        description: 'PowerShell script at the repo root that builds into build_dir'
+        type: string
+        default: webgl.ps1
+      build_dir:
+        description: 'Folder the build script writes, relative to the repo root'
+        type: string
+        default: Builds/WebGL
+      live_url:
+        description: 'Public URL of the live server; checked after the promote'
+        type: string
+        default: https://boogie.junco-diatonic.ts.net:10000/
+
+# One Unity build at a time on the machine; a queued build waits instead of killing a running one.
+concurrency:
+  group: unity-boogie
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: [self-hosted, boogie]
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      # clean: false keeps Unity's gitignored Library/, so a rebuild is incremental instead of a full re-import.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          clean: false
+
+      - name: Build WebGL
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Remove-Item -Recurse -Force '${{ inputs.build_dir }}' -ErrorAction SilentlyContinue
+          & powershell -NoProfile -ExecutionPolicy Bypass -File '${{ inputs.build_script }}'
+          if ($LASTEXITCODE -ne 0) { throw "WebGL build failed (exit $LASTEXITCODE)" }
+          if (-not (Test-Path '${{ inputs.build_dir }}/index.html')) { throw 'no index.html in the build' }
+
+      - name: Stamp the build
+        run: Set-Content -NoNewline -Encoding ascii '${{ inputs.build_dir }}/build-info.txt' '${{ github.sha }}'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: webgl-${{ github.sha }}
+          path: ${{ inputs.build_dir }}
+          retention-days: 7
+
+      # HOMESERVER_DIR is set in the runner's .env; the default is the usual checkout.
+      - name: Publish to the live server
+        if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $home_ = if ($env:HOMESERVER_DIR) { $env:HOMESERVER_DIR } else { Join-Path $HOME 'Documents\github\homeserver' }
+          & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $home_ 'tailnet\webgl-server\publish.ps1') '${{ inputs.build_dir }}'
+          if ($LASTEXITCODE -ne 0) { throw "publish.ps1 failed (exit $LASTEXITCODE)" }
+
+      # The live page must serve this exact commit, or the run fails and the epic reports ship-failed.
+      - name: Verify the live build
+        if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        run: |
+          $url = ('${{ inputs.live_url }}'.TrimEnd('/')) + '/build-info.txt'
+          $got = ''
+          foreach ($i in 1..12) {
+            try { $got = (Invoke-WebRequest -UseBasicParsing -Uri $url -TimeoutSec 20).Content.Trim() } catch { $got = "error: $($_.Exception.Message)" }
+            if ($got -eq '${{ github.sha }}') { Write-Host "live build is ${{ github.sha }}"; exit 0 }
+            Start-Sleep 10
+          }
+          throw "live site serves '$got', expected ${{ github.sha }}"

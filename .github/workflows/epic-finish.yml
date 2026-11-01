@@ -21,11 +21,16 @@ on:
         description: 'Public itch page; empty skips the itch check'
         type: string
         default: ''
+      play_url:
+        description: 'Where the game is played when it is not on itch; goes into the announcement'
+        type: string
+        default: ''
 
 env:
   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   GH_REPO: ${{ github.repository }}
   ITCH_URL: ${{ inputs.itch_url }}
+  PLAY_URL: ${{ inputs.play_url }}
   # 'yourmum' is the shared page token of the not-yet-public itch pages, not a credential.
   ITCH_PAGE_PASSWORD: ${{ vars.ITCH_PAGE_PASSWORD || 'yourmum' }}
 
@@ -66,7 +71,7 @@ jobs:
         continue-on-error: true
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        run: node .jam-ci/scripts/epicpr.mjs announce --issue "${{ steps.issue.outputs.issue }}"
+        run: node .jam-ci/scripts/epicpr.mjs announce --issue "${{ steps.issue.outputs.issue }}" --itch-url "${ITCH_URL:-$PLAY_URL}"
 
       - name: Report on the epic issue
         if: always() && steps.issue.outputs.issue != ''
