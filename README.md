@@ -25,7 +25,11 @@ jobs:
 `.github/workflows/epic.yml`, the git-only epic flow. The approval and the merge
 happen on GitHub, not on the Jam Hub board:
 
-1. Micah approves an epic pull request (one that says `Refs #N`). The stub's
+An issue is optional. A pull request with no `Refs #N` is an ordinary change:
+approving it merges it and the merge push publishes it, and the epic reporting
+(announcement, issue comment) is skipped, so nothing goes red.
+
+1. Micah approves a pull request. The stub's
    `merge` job calls `epic-merge.yml` with the approved commit. It merges with
    the Jam Hub app's token when the head is still that commit, there is no
    conflict and every check is green; otherwise it comments the refusal on the

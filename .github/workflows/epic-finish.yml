@@ -46,8 +46,11 @@ jobs:
         id: issue
         run: node .jam-ci/scripts/epicpr.mjs issue-of --pr "${{ inputs.pr }}"
 
+      # A pull request with no "Refs #N" is an ordinary change: the publish run
+      # itself is its deploy, so nothing below runs and the workflow stays green.
       - name: Wait for the publish run
         id: publish
+        if: steps.issue.outputs.issue != ''
         continue-on-error: true
         run: node .jam-ci/scripts/epicpr.mjs wait-publish --sha "${{ inputs.sha }}"
 
@@ -66,7 +69,7 @@ jobs:
         run: node .jam-ci/scripts/epicpr.mjs announce --issue "${{ steps.issue.outputs.issue }}"
 
       - name: Report on the epic issue
-        if: always() && steps.issue.outcome == 'success'
+        if: always() && steps.issue.outputs.issue != ''
         env:
           PUBLISH: ${{ steps.publish.outcome }}
           ITCH: ${{ steps.itch.outcome }}

@@ -140,11 +140,11 @@ function cmdIssueOf() {
   const repo = need('--repo', process.env.GITHUB_REPOSITORY), number = need('--pr');
   const pr = ghJson(['pr', 'view', String(number), '--repo', repo, '--json', 'body,mergedAt']);
   if (!pr) fail(`cannot read PR #${number}`);
-  const issue = issueOf(pr.body);
-  if (!issue) fail(`PR #${number} does not say "Refs #N"`);
+  // An issue is optional: a pull request that does not say "Refs #N" is an ordinary change, and the workflows skip the epic reporting.
+  const issue = issueOf(pr.body) || '';
   setOutput('issue', issue);
   setOutput('merged_at', pr.mergedAt || '');
-  console.log(JSON.stringify({ issue, mergedAt: pr.mergedAt || null }));
+  console.log(issue ? JSON.stringify({ issue, mergedAt: pr.mergedAt || null }) : `PR #${number} has no epic issue ("Refs #N"): nothing to report`);
 }
 
 /** Wait for the publish workflow run of --sha: the merge push starts it, so it may not exist yet. */

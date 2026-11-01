@@ -62,7 +62,7 @@ jobs:
         run: node .jam-ci/scripts/epicpr.mjs issue-of --pr "${{ inputs.pr }}"
 
       - name: Report a refused merge on the epic issue
-        if: steps.merge.outputs.code != '0'
+        if: steps.merge.outputs.code != '0' && steps.issue.outputs.issue != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
@@ -76,4 +76,7 @@ jobs:
           else outcome=ship-failed; detail="The merge failed; see the run log."
           fi
           node .jam-ci/scripts/epicpr.mjs finish --issue "${{ steps.issue.outputs.issue }}" --outcome "$outcome" --sha "${{ inputs.sha }}" --url "$RUN_URL" --detail "$detail"
-          exit 1
+
+      - name: Fail the run when the merge was refused
+        if: steps.merge.outputs.code != '0'
+        run: exit 1
