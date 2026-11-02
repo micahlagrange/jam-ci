@@ -84,6 +84,8 @@ One-time setup on `boogie`:
 - The repo commits `webgl.ps1` and `Assets/Editor/PlaytestBuild.cs` (see the `unity-webgl-deploy` skill).
 - Secrets `JAM_HUB_APP_KEY` / variable `JAM_HUB_APP_ID` as for any game; `BUTLER_CREDENTIALS` is not used.
 
+The runner (install, verify, restart, remove, debug, Unity licence, `HOMESERVER_DIR`) is documented and scripted in the game repo: `docs/ci-runner.md` and `ci/runner/install-runner.ps1` in `micahlagrange/cryptid-curios`. It is a Windows service running as `sixst`, labelled `boogie`.
+
 Approving the pull request is the decision to publish to the public Funnel link. If the runner is offline, the build check never completes and `epic-merge` refuses to merge; start the runner service and re-run the workflow.
 
 ## Mirroring
