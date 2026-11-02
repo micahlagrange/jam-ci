@@ -217,7 +217,7 @@ const fit = (text, tail) => {
 };
 
 /** Post the announcement once. Returns {sent, why}; never posts without a webhook or twice. `post` is injectable for tests. */
-export async function announce({ repo, number, webhook, itchUrl = '', post = defaultPost }) {
+export async function announce({ repo, number, webhook, itchUrl = '', post = postDiscord }) {
   const issue = ghJson(['issue', 'view', String(number), '--repo', repo, '--json', ISSUE_DEPLOY_FIELDS]);
   if (!issue) throw new Error(`cannot read ${repo}#${number}`);
   if (markerOf(issue.body, 'announced') !== null) return { sent: false, why: 'already announced' };
@@ -227,7 +227,8 @@ export async function announce({ repo, number, webhook, itchUrl = '', post = def
   return { sent: true, why: 'posted' };
 }
 
-async function defaultPost(webhook, content) {
+/** One Discord webhook POST, mentions off. The announcement and the review notice (epics.mjs) both go out this way. */
+export async function postDiscord(webhook, content) {
   const res = await fetch(webhook, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ content, allowed_mentions: { parse: [] } }) });
   if (!res.ok) throw new Error(`Discord webhook answered ${res.status}`);
 }
