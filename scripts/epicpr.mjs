@@ -125,7 +125,7 @@ export function mergePr(repo, { number, sha }, { wait = waitChecks, settle = () 
   for (let i = 0; i < 5 && pr.mergeable === 'UNKNOWN'; i++) { settle(); pr = viewPr(repo, number); }
   if (pr.mergeable === 'CONFLICTING') throw new ShipError(`PR #${number} conflicts with the main line`, 3);
   wait(repo, sha, { ignore: [] });
-  // Only the merge itself runs under GH_MERGE_TOKEN (the Jam Hub app's token): its push starts
+  // Only the merge itself runs under GH_MERGE_TOKEN (the Jam Hub github app's token): its push starts
   // the publish workflow, which a push with the default Actions token would not. The reads above
   // stay on GH_TOKEN because the app lacks checks/statuses read.
   const env = process.env.GH_MERGE_TOKEN ? { ...process.env, GH_TOKEN: process.env.GH_MERGE_TOKEN } : undefined;

@@ -31,7 +31,7 @@ approving it merges it and the merge push publishes it, and the epic reporting
 
 1. Micah approves a pull request. The stub's
    `merge` job calls `epic-merge.yml` with the approved commit. It merges with
-   the Jam Hub app's token when the head is still that commit, there is no
+   the Jam Hub github app's token when the head is still that commit, there is no
    conflict and every check is green; otherwise it comments the refusal on the
    epic issue and leaves the pull request open.
 2. The merge push on the default branch runs the game's own `publish.yml`.
@@ -91,6 +91,6 @@ Approving the pull request is the decision to publish to the public Funnel link.
 ## Mirroring
 
 `micahlagrange/skills/.github/workflows/mirror-jam-ci.yml` mints a token for the
-Jam Hub app (the same secret and variable, set on the skills repo), checks this
+Jam Hub github app (the same secret and variable, set on the skills repo), checks this
 repo out with it, runs `node game-jam/scripts/jamci.mjs mirror jam-ci` and
 pushes. `game-jam/ci/github-app.md` in the skills repo describes the app.
