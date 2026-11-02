@@ -25,17 +25,17 @@ jobs:
     env:
       ITCH_TARGET: ${{ inputs.itch_user }}/${{ inputs.itch_game }}:html
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref }}
       # The game's tests import the harness from .jam/ (gitignored; the same files
       # jamci.mjs vend copies there for local runs).
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: micahlagrange/jam-ci
           path: .jam-ci
       - run: mkdir -p .jam && cp .jam-ci/scripts/*.mjs .jam/
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
           cache: npm
@@ -49,7 +49,7 @@ jobs:
           mkdir -p dist
           cp index.html dist/
           [ -f LICENSE-assets.txt ] && cp LICENSE-assets.txt dist/ || true
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ inputs.itch_game }}-html
           path: dist

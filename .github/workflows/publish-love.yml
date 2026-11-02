@@ -48,13 +48,13 @@ jobs:
       GAME_NAME: ${{ inputs.game_name }}
       ITCH_TARGET: ${{ inputs.itch_user }}/${{ inputs.itch_game }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref }}
           submodules: true
           # the whole history, so a pre_build step can count commits for a build number
           fetch-depth: 0
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
       - name: Read the build targets from makelove.toml
@@ -89,26 +89,26 @@ jobs:
         run: ${{ inputs.post_build }}
       - run: ls -ltraR makelove-build
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ env.GAME_NAME }} - love
           path: makelove-build/love/${{ env.GAME_NAME }}.love
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: steps.targets.outputs.lovejs == 'true'
         with:
           name: ${{ env.GAME_NAME }} - web
           path: makelove-build/lovejs/${{ env.GAME_NAME }}-lovejs.zip
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: steps.targets.outputs.appimage == 'true'
         with:
           name: ${{ env.GAME_NAME }} - linux
           path: makelove-build/appimage/${{ env.GAME_NAME }}.AppImage
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: steps.targets.outputs.win64 == 'true'
         with:
           name: ${{ env.GAME_NAME }} - win64
           path: makelove-build/win64/${{ env.GAME_NAME }}-win64.zip
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: steps.targets.outputs.macos == 'true'
         with:
           name: ${{ env.GAME_NAME }} - macos

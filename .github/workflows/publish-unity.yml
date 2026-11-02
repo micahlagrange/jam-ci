@@ -45,7 +45,7 @@ jobs:
         shell: powershell
     steps:
       # clean: false keeps Unity's gitignored Library/, so a rebuild is incremental instead of a full re-import.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref }}
           clean: false
@@ -61,7 +61,7 @@ jobs:
       - name: Stamp the build
         run: Set-Content -NoNewline -Encoding ascii '${{ inputs.build_dir }}/build-info.txt' '${{ github.sha }}'
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: webgl-${{ github.sha }}
           path: ${{ inputs.build_dir }}
