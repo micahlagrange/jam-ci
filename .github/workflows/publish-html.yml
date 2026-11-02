@@ -20,7 +20,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       ITCH_TARGET: ${{ inputs.itch_user }}/${{ inputs.itch_game }}:html
