@@ -33,7 +33,10 @@ approving it merges it and the merge push publishes it, and the epic reporting
    `merge` job calls `epic-merge.yml` with the approved commit. It merges with
    the Jam Hub github app's token when the head is still that commit, there is no
    conflict and every check is green; otherwise it comments the refusal on the
-   epic issue and leaves the pull request open.
+   epic issue and leaves the pull request open. A pull request that conflicts
+   before the approval gets no run (GitHub starts none without a merge
+   commit): the conflict shows on the pull request and in the tick's
+   `needs.conflict`.
 2. The merge push on the default branch runs the game's own `publish.yml`.
    (A merge made with `GITHUB_TOKEN` would start no push run; the app token does.)
 3. The pull request closes as merged. The stub's `finish` job calls
