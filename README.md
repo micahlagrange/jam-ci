@@ -71,7 +71,7 @@ other push builds and tests. Nothing here calls an AI service.
 - `DISCORD_WEBHOOK_URL`: the announce webhook. Missing: announce logs and skips.
 - Variable `ITCH_PAGE_PASSWORD`: page token of a not-yet-public itch page, for the itch check (default `yourmum`).
 
-- Secret `JAM_HUB_APP_KEY` and variable `JAM_HUB_APP_ID`: the Jam Hub GitHub App
+- Secret `JAM_HUB_APP_KEY`: the private key of the Jam Hub GitHub App
   (`micahlagrange-jam-hub`), which `epic-merge` merges with. Missing: the merge job fails.
 
 `secrets: inherit` in the stubs passes them through.
@@ -85,7 +85,7 @@ One-time setup on `boogie`:
 - Register a GitHub Actions runner for the game repo (Settings > Actions > Runners) with the label `boogie`, installed as a service that runs as Micah's Windows user (Unity is activated there). Set `HOMESERVER_DIR` in the runner's `.env` if the homeserver checkout is not `~\Documents\github\homeserver`.
 - The repo must be private. A self-hosted runner runs the code of every pull request against it.
 - The repo commits `webgl.ps1` and `Assets/Editor/PlaytestBuild.cs` (see the `unity-webgl-deploy` skill).
-- Secrets `JAM_HUB_APP_KEY` / variable `JAM_HUB_APP_ID` as for any game; `BUTLER_CREDENTIALS` is not used.
+- Secret `JAM_HUB_APP_KEY` as for any game; `BUTLER_CREDENTIALS` is not used.
 
 The runner (install, verify, restart, remove, debug, Unity licence, `HOMESERVER_DIR`) is documented and scripted in the game repo: `docs/ci-runner.md` and `ci/runner/install-runner.ps1` in `micahlagrange/cryptid-curios`. It is a Windows service running as `sixst`, labelled `boogie`.
 

@@ -3,11 +3,11 @@ name: epic-merge
 # Merge an epic pull request that the repository owner approved on GitHub.
 # epicpr.mjs merge checks the head is still the approved commit, that the
 # pull request does not conflict and that every check on it passed, then merges
-# with the Jam Hub GitHub App's token (repo secret JAM_HUB_APP_KEY, variable
-# JAM_HUB_APP_ID), so the merge push runs the game's publish workflow; a merge
-# with the default Actions token would not. When the merge is refused, the
-# outcome is commented on the epic issue (the one the pull request says
-# "Refs #N" to) and the pull request stays open.
+# with the Jam Hub GitHub App's token (repo secret JAM_HUB_APP_KEY), so the merge
+# push runs the game's publish workflow; a merge with the default Actions token
+# would not. When the merge is refused, the outcome is commented on the epic
+# issue (the one the pull request says "Refs #N" to) and the pull request stays
+# open.
 on:
   workflow_call:
     inputs:
@@ -35,7 +35,7 @@ jobs:
       - id: app
         uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ vars.JAM_HUB_APP_ID }}
+          client-id: Iv23liv2cndSAVC7dMSm
           private-key: ${{ secrets.JAM_HUB_APP_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
