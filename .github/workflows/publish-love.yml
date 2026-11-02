@@ -31,6 +31,10 @@ on:
         description: 'pip requirement for makelove'
         type: string
         default: makelove==0.0.13
+      pre_build:
+        description: 'Shell to run after the tests, before makelove (stamp a build number, generate files); empty skips it'
+        type: string
+        default: ''
       post_build:
         description: 'Shell to run after makelove, before upload'
         type: string
@@ -48,6 +52,8 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
           submodules: true
+          # the whole history, so a pre_build step can count commits for a build number
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -73,6 +79,9 @@ jobs:
       - name: Test
         if: inputs.test != ''
         run: ${{ inputs.test }}
+      - name: Pre-build
+        if: inputs.pre_build != ''
+        run: ${{ inputs.pre_build }}
       - name: Build
         run: python3 -m makelove
       - name: Post-build
