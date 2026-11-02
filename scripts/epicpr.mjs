@@ -67,6 +67,17 @@ export const issueOf = (body = '') => {
   return m ? Number(m[1]) : null;
 };
 
+/** Who may write the sections and markers the automation acts on: the repo owner, the Jam Hub app, and the workflows'
+ *  own GITHUB_TOKEN (epic-finish comments the epic-result as github-actions). Anyone else can comment on a public repo. */
+export const TRUSTED_BOTS = ['micahlagrange-jam-hub', 'github-actions'];
+const loginOf = (c) => String(c?.author?.login || '').replace(/^app\//, '').replace(/\[bot\]$/, '').toLowerCase();
+
+/** The comments written by the repo owner or a trusted bot; a comment with no author is dropped. */
+export function trustedComments(comments = [], repo = '') {
+  const owner = String(repo).split('/')[0].toLowerCase();
+  return (comments || []).filter((c) => { const login = loginOf(c); return login && (login === owner || TRUSTED_BOTS.includes(login)); });
+}
+
 /** The newest `epic-result` comment of an issue as {outcome, at, ...}, or null. */
 export function lastResult(comments = []) {
   const re = new RegExp(`<!--\\s*${RESULT_MARKER}\\s+(\\{.*?\\})\\s*-->`);
@@ -211,7 +222,7 @@ export async function announce({ repo, number, webhook, itchUrl = '', post = def
   if (!issue) throw new Error(`cannot read ${repo}#${number}`);
   if (markerOf(issue.body, 'announced') !== null) return { sent: false, why: 'already announced' };
   if (!webhook) return { sent: false, why: 'no DISCORD_WEBHOOK_URL secret: nothing was posted' };
-  await post(webhook, announcementText(issue, itchUrl));
+  await post(webhook, announcementText({ ...issue, comments: trustedComments(issue.comments, repo) }, itchUrl));
   markIssue(repo, number, 'announced', now());
   return { sent: true, why: 'posted' };
 }
