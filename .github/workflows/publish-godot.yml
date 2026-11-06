@@ -119,6 +119,10 @@ jobs:
       - name: Import
         run: |
           $ErrorActionPreference = 'Continue'
+          # The builds go to <project>/build: a .gdignore keeps Godot from importing their PNGs and
+          # leaving .import files in what gets published.
+          New-Item -ItemType Directory -Force '${{ inputs.project_dir }}/build' | Out-Null
+          New-Item -ItemType File -Force '${{ inputs.project_dir }}/build/.gdignore' | Out-Null
           & $env:GODOT --headless --path '${{ inputs.project_dir }}' --import
           if ($LASTEXITCODE -ne 0) { throw "import failed (exit $LASTEXITCODE)" }
 
