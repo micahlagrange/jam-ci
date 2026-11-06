@@ -77,7 +77,7 @@ other push builds and tests. Nothing here calls an AI service.
 
 `secrets: inherit` in the stubs passes them through.
 
-## Unity games (Cryptid Curios)
+## Unity games (Cryptid Corral)
 
 A Unity game cannot build on GitHub's runners (the editor and its licence are on `boogie`) and is not on itch; it is played from the WebGL live server. Vend it with `node game-jam/scripts/jamci.mjs vend <project> --kind unity`: the `publish.yml` stub calls `publish-unity.yml` and the `epic.yml` stub passes `play_url` instead of `itch_url`, so `epic-finish` skips the itch check and puts the live link in the announcement. Everything else in the epic flow is unchanged.
 
@@ -85,16 +85,16 @@ One-time setup on `boogie`:
 
 - Register a GitHub Actions runner for the game repo (Settings > Actions > Runners) with the label `boogie`, installed as a service that runs as Micah's Windows user (Unity is activated there). Set `HOMESERVER_DIR` in the runner's `.env` if the homeserver checkout is not `~\Documents\github\homeserver`.
 - The repo must be private. A self-hosted runner runs the code of every pull request against it.
-- The repo commits `webgl.ps1` and `Assets/Editor/PlaytestBuild.cs` (the build scripts for a Unity project; for a new Unity game copy them from the Unity project still kept in `micahlagrange/cryptid-curios`).
+- The repo commits `webgl.ps1` and `Assets/Editor/PlaytestBuild.cs` (the build scripts for a Unity project; for a new Unity game copy them from the Unity project still kept in `micahlagrange/cryptid-corral`).
 - Secret `JAM_HUB_APP_KEY` as for any game; `BUTLER_CREDENTIALS` is not used.
 
-The runner (install, verify, restart, remove, debug, Unity licence, `HOMESERVER_DIR`) is documented and scripted in the game repo: `docs/ci-runner.md` and `ci/runner/install-runner.ps1` in `micahlagrange/cryptid-curios`. It is a Windows service running as `sixst`, labelled `boogie`.
+The runner (install, verify, restart, remove, debug, Unity licence, `HOMESERVER_DIR`) is documented and scripted in the game repo: `docs/ci-runner.md` and `ci/runner/install-runner.ps1` in `micahlagrange/cryptid-corral`. It is a Windows service running as `sixst`, labelled `boogie`.
 
 Approving the pull request is the decision to publish to the public Funnel link. If the runner is offline, the build check never completes and `epic-merge` refuses to merge; start the runner service and re-run the workflow.
 
-## Godot games (Cryptid Curios)
+## Godot games (Cryptid Corral)
 
-Cryptid Curios moved from Unity to Godot (Summer Engine is a Godot fork, and the project opens in either). Vend it with `node game-jam/scripts/jamci.mjs vend <repo> --kind godot --project-dir godot`: the `publish.yml` stub calls `publish-godot.yml` with `project_dir: 'godot'`, and the `epic.yml` stub is the same as for a Unity game (`play_url`, no itch check). The runner, the private repo, the secrets and the live link are exactly as in the Unity section above, with one catch: the :10000 front door only redirects the bare root, so vend with `--play-url https://boogie.junco-diatonic.ts.net:10000/<game>/` (the verify step fetches `<play-url>build-info.txt`, a 404 at the root).
+Cryptid Corral moved from Unity to Godot (Summer Engine is a Godot fork, and the project opens in either). Vend it with `node game-jam/scripts/jamci.mjs vend <repo> --kind godot --project-dir godot`: the `publish.yml` stub calls `publish-godot.yml` with `project_dir: 'godot'`, and the `epic.yml` stub is the same as for a Unity game (`play_url`, no itch check). The runner, the private repo, the secrets and the live link are exactly as in the Unity section above, with one catch: the :10000 front door only redirects the bare root, so vend with `--play-url https://boogie.junco-diatonic.ts.net:10000/<game>/` (the verify step fetches `<play-url>build-info.txt`, a 404 at the root).
 
 What differs: the build needs no licence, only the Godot editor and export templates, which the workflow downloads once into `~/godot-ci/<version>` (about 1.2 GB the first time). That Godot runs in self-contained mode (a `_sc_` file beside it), so its settings and templates live in `~/godot-ci/<version>/editor_data` and a Godot or Summer editor open on `boogie`, which rewrites `%APPDATA%\Godot`, cannot break the build. The web export uses stock Godot's `web_nothreads` template, so it needs no cross-origin-isolation headers and runs on WebGL 2 in any modern browser, phones included (Summer's own web template needs WebGPU and fails in Firefox). The game's `export_presets.cfg` must hold a preset named `Web`; an `Android` preset adds a debug APK artifact, which needs the Android SDK (`%LOCALAPPDATA%\Android\Sdk`, build-tools 34.0.0, platform android-34), JDK 17 and `~/.android/debug.keystore` on `boogie`; the workflow writes their paths into the self-contained editor settings.
 
