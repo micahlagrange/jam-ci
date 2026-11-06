@@ -75,7 +75,10 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'editor download failed' }
             Expand-Archive "$dl\editor-$v.zip" $root -Force
           }
-          $tpl = Join-Path $env:APPDATA "Godot\export_templates\$v.stable"
+          # Self-contained mode (a `_sc_` file beside the editor): settings and templates live in <root>\editor_data,
+          # so a Godot or Summer editor open on this PC, which rewrites the shared per-user Godot folder, cannot touch the build's setup.
+          New-Item -ItemType File -Force (Join-Path $root '_sc_') | Out-Null
+          $tpl = Join-Path $root "editor_data\export_templates\$v.stable"
           $want = 'web_nothreads_release.zip', 'android_debug.apk', 'android_release.apk', 'android_source.zip', 'version.txt'
           if ($want | Where-Object { -not (Test-Path (Join-Path $tpl $_)) }) {
             curl.exe -sSL --fail -o "$dl\templates-$v.tpz" "$base/Godot_v$v-stable_export_templates.tpz"
@@ -93,6 +96,24 @@ jobs:
             Remove-Item "$dl\templates-$v.tpz" -Force
           }
           if (-not (Test-Path $exe)) { throw "Godot not found at $exe" }
+          # Android settings for the debug APK (SDK, JDK 17, debug keystore). Missing pieces just leave the APK step to fail,
+          # which never blocks the web build.
+          $sdk = Join-Path $env:LOCALAPPDATA 'Android\Sdk'
+          $jdk = if ($env:JAVA_HOME_17_X64) { $env:JAVA_HOME_17_X64 } else { (Get-ChildItem 'C:\Program Files\Microsoft', 'C:\Program Files\Eclipse Adoptium', 'C:\Program Files\Java' -Directory -Filter 'jdk-17*' -ErrorAction SilentlyContinue | Select-Object -First 1).FullName }
+          $ks = Join-Path $HOME '.android\debug.keystore'
+          $cfg = Join-Path $root 'editor_data\editor_settings-4.7.tres'
+          if ((Test-Path $sdk) -and $jdk -and (Test-Path $ks)) {
+            New-Item -ItemType Directory -Force (Split-Path $cfg) | Out-Null
+            $q = { param($p) '"' + ($p -replace '\\', '/') + '"' }
+            $lines = @(
+              "export/android/android_sdk_path = $(& $q $sdk)", "export/android/java_sdk_path = $(& $q $jdk)",
+              "export/android/debug_keystore = $(& $q $ks)", 'export/android/debug_keystore_user = "androiddebugkey"', 'export/android/debug_keystore_pass = "android"')
+            $old = if (Test-Path $cfg) { Get-Content $cfg } else { @('[gd_resource type="EditorSettings" format=3]', '', '[resource]') }
+            $keep = $old | Where-Object { $_ -notmatch '^export/android/(android_sdk_path|java_sdk_path|debug_keystore)' }
+            $at = [array]::IndexOf($keep, '[resource]')
+            $new = @($keep | Select-Object -First ($at + 1)) + $lines + @($keep | Select-Object -Skip ($at + 1))
+            [IO.File]::WriteAllText($cfg, (($new -join "`n") + "`n"), (New-Object Text.UTF8Encoding $false))
+          } else { Write-Host 'Android SDK, JDK 17 or debug keystore missing: no APK will be built' }
           "GODOT=$exe" | Out-File -Append -Encoding ascii $env:GITHUB_ENV
 
       - name: Import
