@@ -85,7 +85,7 @@ One-time setup on `boogie`:
 
 - Register a GitHub Actions runner for the game repo (Settings > Actions > Runners) with the label `boogie`, installed as a service that runs as Micah's Windows user (Unity is activated there). Set `HOMESERVER_DIR` in the runner's `.env` if the homeserver checkout is not `~\Documents\github\homeserver`.
 - The repo must be private. A self-hosted runner runs the code of every pull request against it.
-- The repo commits `webgl.ps1` and `Assets/Editor/PlaytestBuild.cs` (see the `unity-webgl-deploy` skill).
+- The repo commits `webgl.ps1` and `Assets/Editor/PlaytestBuild.cs` (the build scripts for a Unity project; for a new Unity game copy them from the Unity project still kept in `micahlagrange/cryptid-curios`).
 - Secret `JAM_HUB_APP_KEY` as for any game; `BUTLER_CREDENTIALS` is not used.
 
 The runner (install, verify, restart, remove, debug, Unity licence, `HOMESERVER_DIR`) is documented and scripted in the game repo: `docs/ci-runner.md` and `ci/runner/install-runner.ps1` in `micahlagrange/cryptid-curios`. It is a Windows service running as `sixst`, labelled `boogie`.
