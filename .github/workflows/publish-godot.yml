@@ -1,0 +1,165 @@
+name: publish-godot
+
+# Build a Godot game for the web (WebGL 2, no threads) on Micah's PC (`boogie`)
+# and publish it to the public WebGL live server. Called from a game's
+# .github/workflows/publish.yml stub; see README.md. It runs on the self-hosted
+# runner labelled `boogie` because the live server is there. Use it only from a
+# PRIVATE repo: a pull request from a fork would otherwise run its code on that
+# machine.
+#
+# Every push builds (that is the check epic-merge waits for); only the default
+# branch promotes the build to the live folder. Godot comes from the official
+# release, cached in ~/godot-ci/<version> and downloaded on the first run.
+# There is no test suite: a clean export is the gate. If the project has an
+# "Android" export preset a debug APK is built too, as a downloadable artifact;
+# an APK failure never blocks the web publish.
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: 'Commit to build; empty means the triggering commit'
+        type: string
+        default: ''
+      project_dir:
+        description: 'Folder holding project.godot, relative to the repo root'
+        type: string
+        default: '.'
+      godot_version:
+        description: 'Godot release, e.g. 4.7.2 (the official -stable build)'
+        type: string
+        default: '4.7.2'
+      web_preset:
+        description: 'Name of the Web export preset'
+        type: string
+        default: Web
+      android:
+        description: 'Also build a debug APK when the project has an Android preset'
+        type: boolean
+        default: true
+      live_url:
+        description: 'Public URL of the live server; checked after the promote'
+        type: string
+        default: https://boogie.junco-diatonic.ts.net:10000/
+
+# One Godot build at a time on the machine; a queued build waits instead of killing a running one.
+concurrency:
+  group: godot-boogie
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: [self-hosted, boogie]
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      # clean: false keeps Godot's gitignored .godot/ import cache, so a rebuild is incremental.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+          clean: false
+
+      # One-time setup, then a no-op: the editor and the Web + Android export templates.
+      - name: Install Godot ${{ inputs.godot_version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $v = '${{ inputs.godot_version }}'
+          $root = Join-Path $HOME "godot-ci\$v"
+          $exe = Join-Path $root "Godot_v$v-stable_win64_console.exe"
+          $base = "https://github.com/godotengine/godot/releases/download/$v-stable"
+          $dl = Join-Path $HOME 'godot-ci\dl'
+          New-Item -ItemType Directory -Force $dl | Out-Null
+          if (-not (Test-Path $exe)) {
+            curl.exe -sSL --fail -o "$dl\editor-$v.zip" "$base/Godot_v$v-stable_win64.exe.zip"
+            if ($LASTEXITCODE -ne 0) { throw 'editor download failed' }
+            Expand-Archive "$dl\editor-$v.zip" $root -Force
+          }
+          $tpl = Join-Path $env:APPDATA "Godot\export_templates\$v.stable"
+          $want = 'web_nothreads_release.zip', 'android_debug.apk', 'android_release.apk', 'android_source.zip', 'version.txt'
+          if ($want | Where-Object { -not (Test-Path (Join-Path $tpl $_)) }) {
+            curl.exe -sSL --fail -o "$dl\templates-$v.tpz" "$base/Godot_v$v-stable_export_templates.tpz"
+            if ($LASTEXITCODE -ne 0) { throw 'template download failed' }
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+            New-Item -ItemType Directory -Force $tpl | Out-Null
+            $zip = [IO.Compression.ZipFile]::OpenRead("$dl\templates-$v.tpz")
+            try {
+              foreach ($e in $zip.Entries) {
+                if ($e.FullName -match '^templates/(.+)$' -and $want -contains $Matches[1]) {
+                  [IO.Compression.ZipFileExtensions]::ExtractToFile($e, (Join-Path $tpl $Matches[1]), $true)
+                }
+              }
+            } finally { $zip.Dispose() }
+            Remove-Item "$dl\templates-$v.tpz" -Force
+          }
+          if (-not (Test-Path $exe)) { throw "Godot not found at $exe" }
+          "GODOT=$exe" | Out-File -Append -Encoding ascii $env:GITHUB_ENV
+
+      - name: Import
+        run: |
+          $ErrorActionPreference = 'Continue'
+          & $env:GODOT --headless --path '${{ inputs.project_dir }}' --import
+          if ($LASTEXITCODE -ne 0) { throw "import failed (exit $LASTEXITCODE)" }
+
+      - name: Export Web
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $out = '${{ inputs.project_dir }}/build/web'
+          Remove-Item -Recurse -Force $out -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force $out | Out-Null
+          & $env:GODOT --headless --path '${{ inputs.project_dir }}' --export-release '${{ inputs.web_preset }}' (Join-Path (Resolve-Path $out) 'index.html')
+          if ($LASTEXITCODE -ne 0) { throw "web export failed (exit $LASTEXITCODE)" }
+          foreach ($f in 'index.html', 'index.js', 'index.wasm', 'index.pck') { if (-not (Test-Path "$out/$f")) { throw "no $f in the build" } }
+
+      - name: Stamp the build
+        run: Set-Content -NoNewline -Encoding ascii '${{ inputs.project_dir }}/build/web/build-info.txt' '${{ github.sha }}'
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: web-${{ github.sha }}
+          path: ${{ inputs.project_dir }}/build/web
+          retention-days: 7
+
+      # A debug APK, signed with the machine's debug keystore (Godot editor settings on this PC).
+      - name: Export Android debug APK
+        if: inputs.android
+        continue-on-error: true
+        run: |
+          $ErrorActionPreference = 'Continue'
+          if (-not (Select-String -Path '${{ inputs.project_dir }}/export_presets.cfg' -Pattern '^name="Android"' -Quiet)) { Write-Host 'no Android preset'; exit 0 }
+          $out = '${{ inputs.project_dir }}/build/android'
+          Remove-Item -Recurse -Force $out -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force $out | Out-Null
+          & $env:GODOT --headless --path '${{ inputs.project_dir }}' --export-debug Android (Join-Path (Resolve-Path $out) 'game-debug.apk')
+          if ($LASTEXITCODE -ne 0) { throw "android export failed (exit $LASTEXITCODE)" }
+          if (-not (Test-Path "$out/game-debug.apk")) { throw 'no APK produced' }
+
+      - uses: actions/upload-artifact@v7
+        if: inputs.android
+        with:
+          name: android-${{ github.sha }}
+          path: ${{ inputs.project_dir }}/build/android/game-debug.apk
+          retention-days: 7
+          if-no-files-found: ignore
+
+      # HOMESERVER_DIR is set in the runner's .env; the default is the usual checkout.
+      - name: Publish to the live server
+        if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $home_ = if ($env:HOMESERVER_DIR) { $env:HOMESERVER_DIR } else { Join-Path $HOME 'Documents\github\homeserver' }
+          & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $home_ 'tailnet\webgl-server\publish.ps1') '${{ inputs.project_dir }}/build/web'
+          if ($LASTEXITCODE -ne 0) { throw "publish.ps1 failed (exit $LASTEXITCODE)" }
+
+      # The live page must serve this exact commit, or the run fails and the epic reports ship-failed.
+      - name: Verify the live build
+        if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        run: |
+          $url = ('${{ inputs.live_url }}'.TrimEnd('/')) + '/build-info.txt'
+          $got = ''
+          foreach ($i in 1..12) {
+            try { $got = (Invoke-WebRequest -UseBasicParsing -Uri $url -TimeoutSec 20).Content.Trim() } catch { $got = "error: $($_.Exception.Message)" }
+            if ($got -eq '${{ github.sha }}') { Write-Host "live build is ${{ github.sha }}"; exit 0 }
+            Start-Sleep 10
+          }
+          throw "live site serves '$got', expected ${{ github.sha }}"
