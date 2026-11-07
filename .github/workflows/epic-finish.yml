@@ -2,9 +2,8 @@ name: epic-finish
 
 # The last half of an epic, run when its pull request closes as merged: wait for
 # the game's publish run of the merge commit, check the itch page shows the new
-# build, post the announcement written in the issue to Discord (repo secret
-# DISCORD_WEBHOOK_URL; skipped with a log line when absent), then comment the
-# outcome on the epic issue and close it when deployed. On any failure the issue
+# build, then comment the outcome on the epic issue and close it when deployed.
+# It posts nothing to Discord (the channel banner is the only voice there). On any failure the issue
 # stays open with an `epic-result` comment.
 on:
   workflow_call:
@@ -22,7 +21,7 @@ on:
         type: string
         default: ''
       play_url:
-        description: 'Where the game is played when it is not on itch; goes into the announcement'
+        description: 'Where the game is played when it is not on itch (kept so callers do not break; unused)'
         type: string
         default: ''
 
@@ -64,14 +63,6 @@ jobs:
         if: steps.publish.outcome == 'success' && env.ITCH_URL != ''
         continue-on-error: true
         run: node .jam-ci/scripts/epicpr.mjs verify-itch --url "$ITCH_URL" --since "${{ steps.issue.outputs.merged_at }}"
-
-      - name: Announce on Discord
-        id: announce
-        if: steps.itch.outcome == 'success' || (steps.publish.outcome == 'success' && env.ITCH_URL == '')
-        continue-on-error: true
-        env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        run: node .jam-ci/scripts/epicpr.mjs announce --issue "${{ steps.issue.outputs.issue }}" --itch-url "${ITCH_URL:-$PLAY_URL}"
 
       - name: Report on the epic issue
         if: always() && steps.issue.outputs.issue != ''

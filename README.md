@@ -41,7 +41,7 @@ approving it merges it and the merge push publishes it, and the epic reporting
    (A merge made with `GITHUB_TOKEN` would start no push run; the app token does.)
 3. The pull request closes as merged. The stub's `finish` job calls
    `epic-finish.yml`, which waits for that publish run, checks the itch page,
-   posts the announcement to Discord and comments the outcome on the issue,
+   comments the outcome on the issue,
    closing it when deployed. A pull request Micah merges by hand gets the same.
 
 A `.jam/` line in `.gitignore`. The local test harness (`smoke.mjs`, `core.mjs`)
@@ -61,7 +61,7 @@ keeps the inputs it finds in the existing stub.
 | `publish-unity.yml` | `build_script` (`webgl.ps1`), `build_dir` (`Builds/WebGL`), `live_url` (the :10000 Funnel link) | Runs on the self-hosted runner `boogie`: builds WebGL with Unity in the runner's own workspace, stamps `build-info.txt` with the commit, uploads the build; on the default branch only, promotes it with `publish.ps1` from the homeserver repo and checks the live site serves that commit. No tests: a clean build is the gate. |
 | `publish-godot.yml` | `project_dir` (folder with `project.godot`, default `.`), `godot_version` (`4.7.2`), `web_preset` (`Web`), `android` (`true`), `live_url` (the :10000 Funnel link) | Runs on the self-hosted runner `boogie`: installs the official Godot release and its Web and Android templates once (cached in `~/godot-ci`), imports and exports the Web preset (WebGL 2, no threads, so it plays on phones and in Firefox), stamps `build-info.txt`, uploads the build; builds a debug APK as a non-blocking artifact when the project has an `Android` preset; on the default branch only, promotes the web build with `publish.ps1` and checks the live site serves that commit. No tests: a clean export is the gate. |
 | `epic-merge.yml` | `pr`, `sha` | `epicpr.mjs merge`: the head is still `sha`, no conflict, checks green, then merge with the app token. A refusal is commented on the epic issue as `conflict`, `stale`, `checks-failed` or `ship-failed`. |
-| `epic-finish.yml` | `pr`, `sha`, `itch_url`, `play_url` | `issue-of`, `wait-publish` (the publish run of the merge commit), `verify-itch`, `announce` on Discord, `finish`: comment the outcome (`deployed`, `ship-failed`, `deploy-unverified`) and close the issue when deployed. |
+| `epic-finish.yml` | `pr`, `sha`, `itch_url`, `play_url` | `issue-of`, `wait-publish` (the publish run of the merge commit), `verify-itch`, `finish`: comment the outcome (`deployed`, `ship-failed`, `deploy-unverified`) and close the issue when deployed. |
 
 Publishing happens only when `github.ref` is the caller's default branch; every
 other push builds and tests. Nothing here calls an AI service.
@@ -69,7 +69,7 @@ other push builds and tests. Nothing here calls an AI service.
 ## Secrets and variables (per game repo)
 
 - `BUTLER_CREDENTIALS`: itch API key. Missing: the publish step warns and skips.
-- `DISCORD_WEBHOOK_URL`: the announce webhook. Missing: announce logs and skips.
+- `DISCORD_WEBHOOK_URL`: no longer used by the epic flow (nothing is announced on Discord).
 - Variable `ITCH_PAGE_PASSWORD`: page token of a not-yet-public itch page, for the itch check (default `yourmum`).
 
 - Secret `JAM_HUB_APP_KEY`: the private key of the Jam Hub GitHub App
