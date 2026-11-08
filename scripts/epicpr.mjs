@@ -126,8 +126,8 @@ const viewPr = (repo, number) => {
 };
 
 /** Merge one reviewed PR: the head must still be the reviewed commit, it must not conflict and its checks must be green.
- *  An already merged PR is skipped. Returns {merged, note}. `wait` and `settle` are injectable for tests. */
-export function mergePr(repo, { number, sha }, { wait = waitChecks, settle = () => sleep(3000) } = {}) {
+ *  An already merged PR is skipped. Returns {merged, note}. `wait`, `settle` and `rebaseable` are injectable for tests. */
+export function mergePr(repo, { number, sha }, { wait = waitChecks, settle = () => sleep(3000), rebaseable = canRebase } = {}) {
   let pr = viewPr(repo, number);
   if (pr.state === 'MERGED') return { merged: false, note: `PR #${number} is already merged` };
   if (pr.state !== 'OPEN') throw new ShipError(`PR #${number} is ${pr.state.toLowerCase()}, not open`, 1);
@@ -139,9 +139,23 @@ export function mergePr(repo, { number, sha }, { wait = waitChecks, settle = () 
   // the publish workflow, which a push with the default Actions token would not. The reads above
   // stay on GH_TOKEN because the app lacks checks/statuses read.
   const env = process.env.GH_MERGE_TOKEN ? { ...process.env, GH_TOKEN: process.env.GH_MERGE_TOKEN } : undefined;
-  const m = gh(['pr', 'merge', String(number), '--repo', repo, '--merge', '--match-head-commit', sha], undefined, 60000, env);
+  const method = mergeMethodOf(rebaseable(repo, number));
+  const m = gh(['pr', 'merge', String(number), '--repo', repo, `--${method}`, '--match-head-commit', sha], undefined, 60000, env);
   if (m.code) throw new ShipError(`gh pr merge #${number} failed: ${m.out.slice(0, 300)}`, /head (branch|commit)|match/i.test(m.out) ? 4 : 1);
-  return { merged: true, note: `merged PR #${number}` };
+  return { merged: true, note: `merged PR #${number} (${method})` };
+}
+
+/** Pure: how an epic is merged. Rebase keeps main a straight line of the branch's commits. When GitHub will not rebase it
+ *  safely (the worker brought main in with a merge commit to settle a conflict: a rebase would replay the old commits
+ *  and drop that resolution), squash: still one straight commit on main, and it keeps the resolution. */
+export const mergeMethodOf = (canBeRebased) => (canBeRebased ? 'rebase' : 'squash');
+
+/** GitHub's own answer to "can this pull request be rebased onto its base without changing the result". False when it
+ *  cannot tell. */
+function canRebase(repo, number) {
+  const [owner, name] = repo.split('/');
+  const r = ghJson(['api', 'graphql', '-f', `query=query{repository(owner:"${owner}",name:"${name}"){pullRequest(number:${Number(number)}){canBeRebased}}}`]);
+  return Boolean(r?.data?.repository?.pullRequest?.canBeRebased);
 }
 
 function cmdMerge() {
@@ -211,7 +225,7 @@ const HEADLINES = {
   'deployed': 'Published and verified on itch. Closing this issue.',
   'deploy-unverified': 'Published, but the itch page is not confirmed. Re-run the epic workflow to retry.',
   'ship-failed': 'Not deployed; see the run.',
-  'conflict': 'Not merged: the pull request conflicts with the main line. Claude resolves it on the branch; approve the pull request again afterwards.',
+  'conflict': 'MERGE_ERROR_CONFLICT: not merged, the pull request conflicts with the main line. The card goes back to backlog and Claude brings main into the branch; approve the pull request again afterwards.',
   'stale': 'Not merged: the pull request changed after the approval. Review and approve the new commits.',
   'checks-failed': 'Not merged: the checks did not pass.',
 };
