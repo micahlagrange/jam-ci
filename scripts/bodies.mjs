@@ -43,12 +43,14 @@ export const artifactUrls = (body) => urlsIn(sectionTexts(body, 'Playtest').join
 
 // ------------------------------------------------------------------ pull request <-> issue links
 export const CLOSING_WORDS = 'close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved';
-const issueRef = (n) => `(?:[\\w.-]+\\/[\\w.-]+)?#${n}(?!\\d)`;
+// `#n`, or `owner/repo#n` naming this repo: `Refs micahlagrange/skills#17` is not issue 17 of a game. With no repo
+// given, any `owner/repo#` prefix counts.
+const issueRef = (n, repo) => `(?:${repo ? escapeRe(String(repo)) :'[\\w.-]+\\/[\\w.-]+'})?#${n}(?!\\d)`;
 
-/** Does this PR body say `Refs #n`? */
-export const refsIssue = (body, n) => new RegExp(`\\bRefs?\\s*:?\\s+${issueRef(n)}`, 'i').test(String(body || ''));
+/** Does this PR body say `Refs #n` (of `repo`, when given)? */
+export const refsIssue = (body, n, repo) => new RegExp(`\\bRefs?\\s*:?\\s+${issueRef(n, repo)}`, 'i').test(String(body || ''));
 /** Does it use a GitHub closing keyword for #n (merging would close the issue early)? */
-export const closesIssue = (body, n) => new RegExp(`\\b(?:${CLOSING_WORDS})\\s*:?\\s+${issueRef(n)}`, 'i').test(String(body || ''));
+export const closesIssue = (body, n, repo) => new RegExp(`\\b(?:${CLOSING_WORDS})\\s*:?\\s+${issueRef(n, repo)}`, 'i').test(String(body || ''));
 
 /** Pull request numbers named in text: `#12` or `.../pull/12`. */
 export const prNumbersIn = (text) => [...new Set([...String(text || '').matchAll(/(?:#|\/pull\/)(\d+)/g)].map((m) => Number(m[1])))];
