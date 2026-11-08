@@ -17,11 +17,10 @@
  *   issue-of      the epic issue a pull request says "Refs #N" to, and when it merged
  *   wait-publish  wait for the publish workflow run of a commit to finish
  *   verify-itch   wait until the itch page shows an update newer than --since
- *   announce      post the issue's "### Announcement" to the Discord webhook
  *   finish        comment the outcome on the issue (and close it when deployed)
  *
- * Every step is safe to run again after a failure: a merged PR is skipped, an
- * announced epic is not announced twice, a closed issue is not closed twice.
+ * Every step is safe to run again after a failure: a merged PR is skipped and a
+ * closed issue is not closed twice.
  * Exit codes: 0 ok, 1 failed, 2 usage, 3 merge conflict, 4 head moved since review, 5 checks not green.
  * Details of the whole flow: references/epic-workflow.md.
  */
@@ -31,7 +30,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { argv, flag, gh, ghJson, sleep } from './core.mjs';
 import { checkUrl } from './itchcheck.mjs';
-import { EPIC_PREFIX, markerOf, setMarker, announcementOf } from './bodies.mjs';
+import { EPIC_PREFIX, markerOf, setMarker } from './bodies.mjs';
 
 export { EPIC_PREFIX };
 const now = () => new Date().toISOString();
@@ -201,42 +200,10 @@ function cmdVerifyItch() {
   })();
 }
 
-// ------------------------------------------------------------------ announce
-export const DISCORD_LIMIT = 2000;
-
-/** Pure: the Discord message: Claude's announcement prose, else a plain line, cut to Discord's limit.
- *  The itch link is always in it: appended to prose that lacks it, and never cut off. */
-export function announcementText(issue, itchUrl = '') {
-  const prose = announcementOf([issue.body, ...(issue.comments || []).map((c) => c.body)].join('\n\n'));
-  if (!prose) return fit(`${issue.title} is live${itchUrl ? `: ${itchUrl}` : '.'}`, '');
-  return fit(prose, itchUrl && !prose.includes(itchUrl) ? `\n\nPlay it: ${itchUrl}` : '');
-}
-const fit = (text, tail) => {
-  const room = DISCORD_LIMIT - tail.length;
-  return (text.length <= room ? text : `${text.slice(0, room - 1)}…`) + tail;
-};
-
-/** Post the announcement once. Returns {sent, why}; never posts without a webhook or twice. `post` is injectable for tests. */
-export async function announce({ repo, number, webhook, itchUrl = '', post = postDiscord }) {
-  const issue = ghJson(['issue', 'view', String(number), '--repo', repo, '--json', ISSUE_DEPLOY_FIELDS]);
-  if (!issue) throw new Error(`cannot read ${repo}#${number}`);
-  if (markerOf(issue.body, 'announced') !== null) return { sent: false, why: 'already announced' };
-  if (!webhook) return { sent: false, why: 'no DISCORD_WEBHOOK_URL secret: nothing was posted' };
-  await post(webhook, announcementText({ ...issue, comments: trustedComments(issue.comments, repo) }, itchUrl));
-  markIssue(repo, number, 'announced', now());
-  return { sent: true, why: 'posted' };
-}
-
-/** One Discord webhook POST, mentions off. The announcement and the review notice (epics.mjs) both go out this way. */
+/** One Discord webhook POST, mentions off. The review notice (epics.mjs) goes out this way. */
 export async function postDiscord(webhook, content) {
   const res = await fetch(webhook, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ content, allowed_mentions: { parse: [] } }) });
   if (!res.ok) throw new Error(`Discord webhook answered ${res.status}`);
-}
-
-async function cmdAnnounce() {
-  const r = await announce({ repo: need('--repo', process.env.GITHUB_REPOSITORY), number: need('--issue'), webhook: process.env.DISCORD_WEBHOOK_URL, itchUrl: flag('--itch-url') || process.env.ITCH_URL || '' });
-  log(`announce: ${r.why}`);
-  setOutput('announced', r.sent);
 }
 
 // ------------------------------------------------------------------ finish
@@ -279,7 +246,7 @@ function setOutput(k, v) {
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `${k}=${String(v ?? '').replace(/\r?\n/g, ' ')}\n`);
 }
 
-const COMMANDS = { merge: cmdMerge, 'issue-of': cmdIssueOf, 'wait-publish': cmdWaitPublish, 'verify-itch': cmdVerifyItch, announce: cmdAnnounce, finish: cmdFinish };
+const COMMANDS = { merge: cmdMerge, 'issue-of': cmdIssueOf, 'wait-publish': cmdWaitPublish, 'verify-itch': cmdVerifyItch, finish: cmdFinish };
 
 async function main() {
   const fn = COMMANDS[argv[0]];

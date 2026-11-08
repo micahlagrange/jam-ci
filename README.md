@@ -27,7 +27,7 @@ happen on GitHub, not on the Jam Hub board:
 
 An issue is optional. A pull request with no `Refs #N` is an ordinary change:
 approving it merges it and the merge push publishes it, and the epic reporting
-(announcement, issue comment) is skipped, so nothing goes red.
+(issue comment) is skipped, so nothing goes red.
 
 1. Micah approves a pull request. The stub's
    `merge` job calls `epic-merge.yml` with the approved commit. It merges with
@@ -69,7 +69,6 @@ other push builds and tests. Nothing here calls an AI service.
 ## Secrets and variables (per game repo)
 
 - `BUTLER_CREDENTIALS`: itch API key. Missing: the publish step warns and skips.
-- `DISCORD_WEBHOOK_URL`: no longer used by the epic flow (nothing is announced on Discord).
 - Variable `ITCH_PAGE_PASSWORD`: page token of a not-yet-public itch page, for the itch check (default `yourmum`).
 
 - Secret `JAM_HUB_APP_KEY`: the private key of the Jam Hub GitHub App
@@ -79,7 +78,7 @@ other push builds and tests. Nothing here calls an AI service.
 
 ## Unity games (Cryptid Corral)
 
-A Unity game cannot build on GitHub's runners (the editor and its licence are on `boogie`) and is not on itch; it is played from the WebGL live server. Vend it with `node game-jam/scripts/jamci.mjs vend <project> --kind unity`: the `publish.yml` stub calls `publish-unity.yml` and the `epic.yml` stub passes `play_url` instead of `itch_url`, so `epic-finish` skips the itch check and puts the live link in the announcement. Everything else in the epic flow is unchanged.
+A Unity game cannot build on GitHub's runners (the editor and its licence are on `boogie`) and is not on itch; it is played from the WebGL live server. Vend it with `node game-jam/scripts/jamci.mjs vend <project> --kind unity`: the `publish.yml` stub calls `publish-unity.yml` and the `epic.yml` stub passes `play_url` instead of `itch_url`, so `epic-finish` skips the itch check. Everything else in the epic flow is unchanged.
 
 One-time setup on `boogie`:
 

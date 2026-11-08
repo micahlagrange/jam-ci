@@ -1,7 +1,7 @@
 /** Pure text helpers for epic issues and their pull requests: hidden markers,
  *  "### Section" blocks and the closing keywords. Imports nothing, because
  *  jamci.mjs mirrors this file to micahlagrange/jam-ci next to epicpr.mjs,
- *  which needs it to read the announcement and the reviewed commits. */
+ *  which needs it to read the reviewed commits. */
 
 export const EPIC_PREFIX = 'epic/';
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -40,8 +40,6 @@ export const urlsIn = (text) => [...String(text || '').matchAll(/https?:\/\/[^\s
 /** The playtest links of an epic issue body ("### Playtest"). */
 export const artifactUrls = (body) => urlsIn(sectionTexts(body, 'Playtest').join('\n'));
 
-/** The announcement prose Claude wrote ("### Announcement"); the last one wins, so a comment can replace the body's. */
-export const announcementOf = (text) => sectionTexts(text, 'Announcement').pop() || '';
 
 // ------------------------------------------------------------------ pull request <-> issue links
 export const CLOSING_WORDS = 'close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved';
