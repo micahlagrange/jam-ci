@@ -214,9 +214,13 @@ function cmdVerifyItch() {
   })();
 }
 
-/** One Discord webhook POST, mentions off. The review notice (epics.mjs) goes out this way. */
+/** The Discord message body for postDiscord: mentions off, and link previews off (flag 4, SUPPRESS_EMBEDS),
+ *  because GitHub unfurls fill the channel. */
+export const webhookBody = (content) => ({ content, allowed_mentions: { parse: [] }, flags: 4 });
+
+/** One Discord webhook POST. The review notice (epics.mjs) goes out this way. */
 export async function postDiscord(webhook, content) {
-  const res = await fetch(webhook, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ content, allowed_mentions: { parse: [] } }) });
+  const res = await fetch(webhook, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(webhookBody(content)) });
   if (!res.ok) throw new Error(`Discord webhook answered ${res.status}`);
 }
 
