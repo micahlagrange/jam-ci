@@ -116,6 +116,15 @@ jobs:
           } else { Write-Host 'Android SDK, JDK 17 or debug keystore missing: no APK will be built' }
           "GODOT=$exe" | Out-File -Append -Encoding ascii $env:GITHUB_ENV
 
+      # Paid or no-redistribution packs listed in <project>/licensed-assets.txt come from this PC's disk
+      # (LICENSED_ASSETS_DIR), never from git; the script is the deployed game-jam skill copy.
+      - name: Copy licensed assets
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not (Test-Path '${{ inputs.project_dir }}/licensed-assets.txt')) { Write-Host 'no licensed assets'; exit 0 }
+          & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $env:USERPROFILE '.claude\skills\game-jam\scripts\licensed-assets.ps1') -ProjectDir '${{ inputs.project_dir }}'
+          if ($LASTEXITCODE -ne 0) { throw "licensed assets copy failed (exit $LASTEXITCODE)" }
+
       - name: Import
         run: |
           $ErrorActionPreference = 'Continue'
