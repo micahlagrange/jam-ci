@@ -1,7 +1,8 @@
 name: epic-finish
 
 # The last half of an epic, run when its pull request closes as merged: wait for
-# the game's publish run of the merge commit, check the itch page shows the new
+# the game's publish run of the merge commit (a Godot game's run includes up to 15 minutes of
+# polling for the pulled live build), check the itch page shows the new
 # build, then comment the outcome on the epic issue and close it when deployed.
 # It posts nothing to Discord (the channel banner is the only voice there). On any failure the issue
 # stays open with an `epic-result` comment.
@@ -36,7 +37,7 @@ env:
 jobs:
   finish:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 70
     steps:
       - uses: actions/checkout@v7
         with:
@@ -56,7 +57,7 @@ jobs:
         id: publish
         if: steps.issue.outputs.issue != ''
         continue-on-error: true
-        run: node .jam-ci/scripts/epicpr.mjs wait-publish --sha "${{ inputs.sha }}"
+        run: node .jam-ci/scripts/epicpr.mjs wait-publish --sha "${{ inputs.sha }}" --timeout 3000
 
       - name: Verify the itch page
         id: itch

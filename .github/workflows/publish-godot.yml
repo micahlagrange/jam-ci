@@ -1,18 +1,21 @@
 name: publish-godot
 
-# Build a Godot game for the web (WebGL 2, no threads) on Micah's PC (`boogie`)
-# and publish it to the public WebGL live server. Called from a game's
-# .github/workflows/publish.yml stub; see README.md. It runs on the self-hosted
-# runner labelled `boogie` because the live server is there. Use it only from a
-# PRIVATE repo: a pull request from a fork would otherwise run its code on that
-# machine.
+# Build a Godot game for the web (WebGL 2, no threads) on a GitHub-hosted Linux
+# runner and upload it as the `web` artifact. Called from a game's
+# .github/workflows/publish.yml stub; see README.md. CI no longer copies the
+# build anywhere: the public front door (`base`) PULLS builds, its scheduler runs
+# `gh run download` for the newest successful run (every 5 minutes).
 #
-# Every push builds (that is the check epic-merge waits for); only the default
-# branch promotes the build to the live folder. Godot comes from the official
-# release, cached in ~/godot-ci/<version> and downloaded on the first run.
+# Artifact contract: name `web`, files at the artifact root (index.html, index.js,
+# index.wasm, index.pck, ... and build-info.txt whose first line is the full commit
+# SHA that was built). Every push, on any branch, uploads it. On the default
+# branch only, the job then polls <live_url>build-info.txt until the live site
+# serves this commit (or fails after 15 minutes).
+#
 # There is no test suite: a clean export is the gate. If the project has an
-# "Android" export preset a debug APK is built too, as a downloadable artifact;
-# an APK failure never blocks the web publish.
+# "Android" export preset a debug APK is built too, as the `android` artifact;
+# an APK failure never blocks the web build.
+
 on:
   workflow_call:
     inputs:
@@ -37,172 +40,171 @@ on:
         type: boolean
         default: true
       live_url:
-        description: 'Public URL of the live server; checked after the promote'
+        description: 'Public URL of the game latest path (ends with /); polled after upload on the default branch'
         type: string
-        default: https://boogie.junco-diatonic.ts.net:10000/
+        default: https://base.junco-diatonic.ts.net:10000/
 
-# One Godot build at a time on the machine; a queued build waits instead of killing a running one.
+
+# A queued build waits instead of killing a running one.
 concurrency:
-  group: godot-boogie
+  group: godot-${{ github.repository }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   build:
-    runs-on: [self-hosted, boogie]
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     defaults:
       run:
-        shell: powershell
+        shell: bash
+    env:
+      GODOT_VERSION: ${{ inputs.godot_version }}
+      PROJECT_DIR: ${{ inputs.project_dir }}
+      WEB_PRESET: ${{ inputs.web_preset }}
     steps:
-      # clean: false keeps Godot's gitignored .godot/ import cache, so a rebuild is incremental.
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref }}
-          clean: false
 
-      # One-time setup, then a no-op: the editor and the Web + Android export templates.
+      - name: Resolve the commit
+        id: commit
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Godot
+        id: cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/godot-ci/${{ inputs.godot_version }}
+            ~/.local/share/godot/export_templates/${{ inputs.godot_version }}.stable
+          key: godot-linux-${{ inputs.godot_version }}-v1
+
+      # The editor and only the templates we use: Web (no threads) and Android.
       - name: Install Godot ${{ inputs.godot_version }}
+        if: steps.cache.outputs.cache-hit != 'true'
         run: |
-          $ErrorActionPreference = 'Stop'
-          $v = '${{ inputs.godot_version }}'
-          $root = Join-Path $HOME "godot-ci\$v"
-          $exe = Join-Path $root "Godot_v$v-stable_win64_console.exe"
-          $base = "https://github.com/godotengine/godot/releases/download/$v-stable"
-          $dl = Join-Path $HOME 'godot-ci\dl'
-          New-Item -ItemType Directory -Force $dl | Out-Null
-          if (-not (Test-Path $exe)) {
-            curl.exe -sSL --fail -o "$dl\editor-$v.zip" "$base/Godot_v$v-stable_win64.exe.zip"
-            if ($LASTEXITCODE -ne 0) { throw 'editor download failed' }
-            Expand-Archive "$dl\editor-$v.zip" $root -Force
-          }
-          # Self-contained mode (a `_sc_` file beside the editor): settings and templates live in <root>\editor_data,
-          # so a Godot or Summer editor open on this PC, which rewrites the shared per-user Godot folder, cannot touch the build's setup.
-          New-Item -ItemType File -Force (Join-Path $root '_sc_') | Out-Null
-          $tpl = Join-Path $root "editor_data\export_templates\$v.stable"
-          $want = 'web_nothreads_release.zip', 'android_debug.apk', 'android_release.apk', 'android_source.zip', 'version.txt'
-          if ($want | Where-Object { -not (Test-Path (Join-Path $tpl $_)) }) {
-            curl.exe -sSL --fail -o "$dl\templates-$v.tpz" "$base/Godot_v$v-stable_export_templates.tpz"
-            if ($LASTEXITCODE -ne 0) { throw 'template download failed' }
-            Add-Type -AssemblyName System.IO.Compression.FileSystem
-            New-Item -ItemType Directory -Force $tpl | Out-Null
-            $zip = [IO.Compression.ZipFile]::OpenRead("$dl\templates-$v.tpz")
-            try {
-              foreach ($e in $zip.Entries) {
-                if ($e.FullName -match '^templates/(.+)$' -and $want -contains $Matches[1]) {
-                  [IO.Compression.ZipFileExtensions]::ExtractToFile($e, (Join-Path $tpl $Matches[1]), $true)
-                }
-              }
-            } finally { $zip.Dispose() }
-            Remove-Item "$dl\templates-$v.tpz" -Force
-          }
-          if (-not (Test-Path $exe)) { throw "Godot not found at $exe" }
-          # Android settings for the debug APK (SDK, JDK 17, debug keystore). Missing pieces just leave the APK step to fail,
-          # which never blocks the web build.
-          $sdk = Join-Path $env:LOCALAPPDATA 'Android\Sdk'
-          $jdk = if ($env:JAVA_HOME_17_X64) { $env:JAVA_HOME_17_X64 } else { (Get-ChildItem 'C:\Program Files\Microsoft', 'C:\Program Files\Eclipse Adoptium', 'C:\Program Files\Java' -Directory -Filter 'jdk-17*' -ErrorAction SilentlyContinue | Select-Object -First 1).FullName }
-          $ks = Join-Path $HOME '.android\debug.keystore'
-          $cfg = Join-Path $root 'editor_data\editor_settings-4.7.tres'
-          if ((Test-Path $sdk) -and $jdk -and (Test-Path $ks)) {
-            New-Item -ItemType Directory -Force (Split-Path $cfg) | Out-Null
-            $q = { param($p) '"' + ($p -replace '\\', '/') + '"' }
-            $lines = @(
-              "export/android/android_sdk_path = $(& $q $sdk)", "export/android/java_sdk_path = $(& $q $jdk)",
-              "export/android/debug_keystore = $(& $q $ks)", 'export/android/debug_keystore_user = "androiddebugkey"', 'export/android/debug_keystore_pass = "android"')
-            $old = if (Test-Path $cfg) { Get-Content $cfg } else { @('[gd_resource type="EditorSettings" format=3]', '', '[resource]') }
-            $keep = $old | Where-Object { $_ -notmatch '^export/android/(android_sdk_path|java_sdk_path|debug_keystore)' }
-            $at = [array]::IndexOf($keep, '[resource]')
-            $new = @($keep | Select-Object -First ($at + 1)) + $lines + @($keep | Select-Object -Skip ($at + 1))
-            [IO.File]::WriteAllText($cfg, (($new -join "`n") + "`n"), (New-Object Text.UTF8Encoding $false))
-          } else { Write-Host 'Android SDK, JDK 17 or debug keystore missing: no APK will be built' }
-          "GODOT=$exe" | Out-File -Append -Encoding ascii $env:GITHUB_ENV
+          set -euo pipefail
+          base="https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable"
+          root="$HOME/godot-ci/$GODOT_VERSION"
+          tpl="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          dl="$RUNNER_TEMP/godot-dl"
+          mkdir -p "$root" "$tpl" "$dl"
+          curl -sSL --fail --retry 3 -o "$dl/editor.zip" "$base/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          unzip -q -o "$dl/editor.zip" -d "$root"
+          curl -sSL --fail --retry 3 -o "$dl/templates.tpz" "$base/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          unzip -q -o -j "$dl/templates.tpz" \
+            templates/web_nothreads_release.zip templates/android_debug.apk templates/android_release.apk \
+            templates/android_source.zip templates/version.txt -d "$tpl"
+          rm -rf "$dl"
+          ls -l "$tpl"
 
-      # Paid or no-redistribution packs listed in <project>/licensed-assets.txt come from this PC's disk
-      # (LICENSED_ASSETS_DIR), never from git; the script is the deployed game-jam skill copy.
-      - name: Copy licensed assets
+      - name: Locate Godot
         run: |
-          $ErrorActionPreference = 'Stop'
-          if (-not (Test-Path '${{ inputs.project_dir }}/licensed-assets.txt')) { Write-Host 'no licensed assets'; exit 0 }
-          & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $env:USERPROFILE '.claude\skills\game-jam\scripts\licensed-assets.ps1') -ProjectDir '${{ inputs.project_dir }}'
-          if ($LASTEXITCODE -ne 0) { throw "licensed assets copy failed (exit $LASTEXITCODE)" }
+          set -euo pipefail
+          bin="$HOME/godot-ci/$GODOT_VERSION/Godot_v${GODOT_VERSION}-stable_linux.x86_64"
+          [ -f "$bin" ] || { echo "Godot not found at $bin"; exit 1; }
+          chmod +x "$bin"
+          echo "GODOT=$bin" >> "$GITHUB_ENV"
+
+      # The old runner copied paid packs from a local disk; GitHub-hosted runners have none.
+      - name: Check for licensed assets
+        run: |
+          if [ -f "$PROJECT_DIR/licensed-assets.txt" ]; then
+            echo "::warning::$PROJECT_DIR/licensed-assets.txt exists but licensed assets are not available on GitHub-hosted runners; the build may be missing them"
+          fi
 
       - name: Import
         run: |
-          $ErrorActionPreference = 'Continue'
+          set -uo pipefail
           # The builds go to <project>/build: a .gdignore keeps Godot from importing their PNGs and
           # leaving .import files in what gets published.
-          New-Item -ItemType Directory -Force '${{ inputs.project_dir }}/build' | Out-Null
-          New-Item -ItemType File -Force '${{ inputs.project_dir }}/build/.gdignore' | Out-Null
-          & $env:GODOT --headless --path '${{ inputs.project_dir }}' --import
-          if ($LASTEXITCODE -ne 0) { throw "import failed (exit $LASTEXITCODE)" }
+          mkdir -p "$PROJECT_DIR/build"
+          touch "$PROJECT_DIR/build/.gdignore"
+          "$GODOT" --headless --path "$PROJECT_DIR" --import
+          rc=$?
+          if [ "$rc" -ne 0 ]; then echo "import failed (exit $rc)"; exit "$rc"; fi
 
       - name: Export Web
         run: |
-          $ErrorActionPreference = 'Continue'
-          $out = '${{ inputs.project_dir }}/build/web'
-          Remove-Item -Recurse -Force $out -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Force $out | Out-Null
-          & $env:GODOT --headless --path '${{ inputs.project_dir }}' --export-release '${{ inputs.web_preset }}' (Join-Path (Resolve-Path $out) 'index.html')
-          if ($LASTEXITCODE -ne 0) { throw "web export failed (exit $LASTEXITCODE)" }
-          foreach ($f in 'index.html', 'index.js', 'index.wasm', 'index.pck') { if (-not (Test-Path "$out/$f")) { throw "no $f in the build" } }
+          set -euo pipefail
+          out="$PROJECT_DIR/build/web"
+          rm -rf "$out"
+          mkdir -p "$out"
+          out_abs="$(cd "$out" && pwd)"
+          (cd "$PROJECT_DIR" && "$GODOT" --headless --export-release "$WEB_PRESET" "$out_abs/index.html")
+          for f in index.html index.js index.wasm index.pck; do
+            [ -f "$out/$f" ] || { echo "no $f in the build"; ls -l "$out"; exit 1; }
+          done
 
       - name: Stamp the build
-        run: Set-Content -NoNewline -Encoding ascii '${{ inputs.project_dir }}/build/web/build-info.txt' '${{ github.sha }}'
+        run: printf '%s\n' '${{ steps.commit.outputs.sha }}' > "$PROJECT_DIR/build/web/build-info.txt"
 
       - uses: actions/upload-artifact@v7
         with:
-          name: web-${{ github.sha }}
+          name: web
           path: ${{ inputs.project_dir }}/build/web
-          retention-days: 7
+          retention-days: 14
+          if-no-files-found: error
 
-      # A debug APK, signed with the machine's debug keystore (Godot editor settings on this PC).
+      # Best effort: a debug APK signed with a throwaway debug keystore, using the runner's Android SDK and JDK 17.
       - name: Export Android debug APK
         if: inputs.android
         continue-on-error: true
         run: |
-          $ErrorActionPreference = 'Continue'
-          if (-not (Select-String -Path '${{ inputs.project_dir }}/export_presets.cfg' -Pattern '^name="Android"' -Quiet)) { Write-Host 'no Android preset'; exit 0 }
-          $out = '${{ inputs.project_dir }}/build/android'
-          Remove-Item -Recurse -Force $out -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Force $out | Out-Null
-          & $env:GODOT --headless --path '${{ inputs.project_dir }}' --export-debug Android (Join-Path (Resolve-Path $out) 'game-debug.apk')
-          if ($LASTEXITCODE -ne 0) { throw "android export failed (exit $LASTEXITCODE)" }
-          if (-not (Test-Path "$out/game-debug.apk")) { throw 'no APK produced' }
+          set -euo pipefail
+          if ! grep -q '^name="Android"' "$PROJECT_DIR/export_presets.cfg" 2>/dev/null; then
+            echo "no Android preset"; exit 0
+          fi
+          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          jdk="${JAVA_HOME_17_X64:-}"
+          if [ ! -d "$sdk" ] || [ -z "$jdk" ]; then echo "Android SDK or JDK 17 missing"; exit 1; fi
+          ks="$HOME/.android/debug.keystore"
+          mkdir -p "$HOME/.android"
+          [ -f "$ks" ] || "$jdk/bin/keytool" -genkeypair -v -keystore "$ks" -alias androiddebugkey \
+            -storepass android -keypass android -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
+          minor="${GODOT_VERSION%.*}"
+          cfg="$HOME/.config/godot/editor_settings-${minor}.tres"
+          mkdir -p "$(dirname "$cfg")"
+          {
+            echo '[gd_resource type="EditorSettings" format=3]'
+            echo
+            echo '[resource]'
+            echo "export/android/android_sdk_path = \"$sdk\""
+            echo "export/android/java_sdk_path = \"$jdk\""
+            echo "export/android/debug_keystore = \"$ks\""
+            echo 'export/android/debug_keystore_user = "androiddebugkey"'
+            echo 'export/android/debug_keystore_pass = "android"'
+          } > "$cfg"
+          out="$PROJECT_DIR/build/android"
+          rm -rf "$out"; mkdir -p "$out"
+          out_abs="$(cd "$out" && pwd)"
+          (cd "$PROJECT_DIR" && "$GODOT" --headless --export-debug Android "$out_abs/game-debug.apk")
+          [ -f "$out/game-debug.apk" ] || { echo "no APK produced"; exit 1; }
 
       - uses: actions/upload-artifact@v7
         if: inputs.android
         with:
-          name: android-${{ github.sha }}
+          name: android
           path: ${{ inputs.project_dir }}/build/android/game-debug.apk
-          retention-days: 7
+          retention-days: 14
           if-no-files-found: ignore
 
-      # Every build, whatever the branch, is the newest one: /<game>/test/ on the public front door.
-      # HOMESERVER_DIR is set in the runner's .env; the default is the usual checkout.
-      - name: Publish to the dev server
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $home_ = if ($env:HOMESERVER_DIR) { $env:HOMESERVER_DIR } else { Join-Path $HOME 'Documents\github\homeserver' }
-          & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $home_ 'tailnet\webgl-server\publish.ps1') -Dev '${{ inputs.project_dir }}/build/web'
-          if ($LASTEXITCODE -ne 0) { throw "publish.ps1 -Dev failed (exit $LASTEXITCODE)" }
-
-      # The main branch's build is /<game>/latest/ (live_url).
-      - name: Publish to the live server
-        if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $home_ = if ($env:HOMESERVER_DIR) { $env:HOMESERVER_DIR } else { Join-Path $HOME 'Documents\github\homeserver' }
-          & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $home_ 'tailnet\webgl-server\publish.ps1') '${{ inputs.project_dir }}/build/web'
-          if ($LASTEXITCODE -ne 0) { throw "publish.ps1 failed (exit $LASTEXITCODE)" }
-
-      # The live page must serve this exact commit, or the run fails and the epic reports ship-failed.
+      # The front door pulls the `web` artifact every 5 minutes. The live page must serve this exact
+      # commit, or the run fails and the epic reports ship-failed.
       - name: Verify the live build
         if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        env:
+          SHA: ${{ steps.commit.outputs.sha }}
+          LIVE_URL: ${{ inputs.live_url }}
         run: |
-          $url = ('${{ inputs.live_url }}'.TrimEnd('/')) + '/build-info.txt'
-          $got = ''
-          foreach ($i in 1..12) {
-            try { $got = (Invoke-WebRequest -UseBasicParsing -Uri $url -TimeoutSec 20).Content.Trim() } catch { $got = "error: $($_.Exception.Message)" }
-            if ($got -eq '${{ github.sha }}') { Write-Host "live build is ${{ github.sha }}"; exit 0 }
-            Start-Sleep 10
-          }
-          throw "live site serves '$got', expected ${{ github.sha }}"
+          url="${LIVE_URL%/}/build-info.txt"
+          got=""
+          for i in $(seq 1 30); do
+            got="$(curl -sS --max-time 20 "$url" 2>&1 | head -n1 | tr -d '\r' || true)"
+            if [ "$got" = "$SHA" ]; then echo "live build is $SHA"; exit 0; fi
+            echo "attempt $i/30: live serves '$got', want $SHA"
+            sleep 30
+          done
+          echo "::error::live site serves '$got', expected $SHA after 15 minutes"
+          exit 1
