@@ -176,24 +176,50 @@ function cmdIssueOf() {
   console.log(issue ? JSON.stringify({ issue, mergedAt: pr.mergedAt || null }) : `PR #${number} has no epic issue ("Refs #N"): nothing to report`);
 }
 
-/** Wait for the publish workflow run of --sha: the merge push starts it, so it may not exist yet. */
+/**
+ * The run that replaced a cancelled publish run. publish.yml cancels the run in progress when a newer push lands on the
+ * same branch, so two epics merged a minute apart leave the first merge commit with only a cancelled run; the build
+ * that ships it is the next run on that branch whose commit contains it. `contains(headSha)` says whether a commit
+ * does. Returns null when nothing replaced it (somebody cancelled it by hand).
+ */
+export function successorOf(run, runs, contains) {
+  const later = runs
+    .filter((r) => r.databaseId !== run.databaseId && Date.parse(r.createdAt) >= Date.parse(run.createdAt) && r.headSha !== run.headSha)
+    .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt) || a.databaseId - b.databaseId);
+  // A cancelled successor was itself replaced: skip it and take the run that replaced it.
+  return later.find((r) => r.conclusion !== 'cancelled' && contains(r.headSha)) || null;
+}
+
+/** Wait for the publish workflow run of --sha: the merge push starts it, so it may not exist yet. A run cancelled by a
+ *  newer push is followed to the run that replaced it. */
 function cmdWaitPublish() {
   const repo = need('--repo', process.env.GITHUB_REPOSITORY), sha = need('--sha');
   const workflow = flag('--workflow') || 'publish.yml';
   const timeout = +(flag('--timeout') || 1800) * 1000, grace = 180000, start = Date.now();
+  const RUN_FIELDS = 'databaseId,status,conclusion,headSha,headBranch,createdAt';
+  const contains = (head) => ['ahead', 'identical'].includes(gh(['api', `repos/${repo}/compare/${sha}...${head}`, '--jq', '.status']).stdout);
+  let run = null;
   for (;;) {
-    const runs = ghJson(['run', 'list', '--repo', repo, '--commit', sha, '--workflow', workflow, '--json', 'databaseId,status,conclusion']) || [];
-    const run = runs[0];
-    if (run) {
-      log(`publish run ${run.databaseId} on ${sha.slice(0, 7)}: ${run.status}`);
-      const w = gh(['run', 'watch', String(run.databaseId), '--repo', repo, '--exit-status'], undefined, timeout);
-      setOutput('result', w.code ? 'failure' : 'success');
-      if (w.code) fail(`the publish run ${run.databaseId} failed`);
-      return;
-    }
+    run = (ghJson(['run', 'list', '--repo', repo, '--commit', sha, '--workflow', workflow, '--json', RUN_FIELDS]) || [])[0];
+    if (run) break;
     if (Date.now() - start > grace) fail(`no ${workflow} run started for ${sha.slice(0, 7)}`);
     log(`no ${workflow} run for ${sha.slice(0, 7)} yet`);
     sleep(15000);
+  }
+  for (;;) {
+    log(`publish run ${run.databaseId} on ${run.headSha.slice(0, 7)}: ${run.status}`);
+    const w = gh(['run', 'watch', String(run.databaseId), '--repo', repo, '--exit-status'], undefined, timeout);
+    if (!w.code) { setOutput('result', 'success'); return; }
+    const done = ghJson(['run', 'view', String(run.databaseId), '--repo', repo, '--json', RUN_FIELDS]) || run;
+    let next = null;
+    if (done.conclusion === 'cancelled') {
+      // The replacing run is queued by the same push that cancelled this one, so it is already listed.
+      const runs = ghJson(['run', 'list', '--repo', repo, '--workflow', workflow, '--branch', done.headBranch, '--limit', '50', '--json', RUN_FIELDS]) || [];
+      next = successorOf(done, runs, contains);
+    }
+    if (!next) { setOutput('result', 'failure'); fail(`the publish run ${run.databaseId} ${done.conclusion === 'cancelled' ? 'was cancelled and no later run replaced it' : 'failed'}`); }
+    log(`publish run ${run.databaseId} was cancelled by a newer push; following run ${next.databaseId} on ${next.headSha.slice(0, 7)}`);
+    run = next;
   }
 }
 
