@@ -3,7 +3,7 @@
  *  Imports nothing from this repo: jamci.mjs copies this file into game repos
  *  (.jam/core.mjs) and to micahlagrange/jam-ci, where ../../paths does not exist.
  *  Anything that needs the machine-specific folders belongs in lib.mjs instead. */
-import { readFileSync, writeFileSync, mkdirSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join, dirname, resolve, basename } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
@@ -93,6 +93,14 @@ export async function loadPlaywright() {
     } catch { /* try next */ }
   }
   return null;
+}
+
+/** Does the browser binary this Playwright build wants exist? A newer or older Chromium in the browsers folder
+ *  does not count: each Playwright version wants its own revision. Never throws. */
+export function browserStatus(pw) {
+  let path = null;
+  try { path = pw?.chromium?.executablePath?.() ?? null; } catch { /* no path */ }
+  return { ok: !!path && existsSync(path), path };
 }
 
 export function needPlaywright() {
