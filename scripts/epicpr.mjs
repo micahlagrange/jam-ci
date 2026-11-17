@@ -17,6 +17,7 @@
  *   issue-of      the epic issue a pull request says "Refs #N" to, and when it merged
  *   wait-publish  wait for the publish workflow run of a commit to finish
  *   verify-itch   wait until the itch page shows an update newer than --since
+ *   verify-live   wait until a site's build-info.txt shows a commit (Netlify games)
  *   finish        comment the outcome on the issue (and close it when deployed)
  *
  * Every step is safe to run again after a failure: a merged PR is skipped and a
@@ -240,6 +241,28 @@ function cmdVerifyItch() {
   })();
 }
 
+/** Pure: does a build-info.txt body name `sha` on its first line? */
+export const buildInfoMatches = (text, sha) => Boolean(sha) && String(text || '').split(/\r?\n/)[0].trim() === String(sha).trim();
+
+/** Poll `<url>build-info.txt` until its first line is `sha` (a live Netlify site serving the built commit). */
+export async function verifyLive({ url, sha, timeout = 300, fetchImpl = globalThis.fetch, wait = (ms) => sleep(ms), interval = 10 }) {
+  const target = `${url.replace(/\/?$/, '/')}build-info.txt`, start = Date.now();
+  for (;;) {
+    let note;
+    try {
+      const res = await fetchImpl(`${target}?t=${Date.now()}`, { headers: { 'cache-control': 'no-cache' } });
+      note = `HTTP ${res.status}`;
+      if (res.ok && buildInfoMatches(await res.text(), sha)) return { ok: true, url: target, sha };
+    } catch (e) { note = e.message; }
+    log(`live: ${target} ${note}, not showing ${String(sha).slice(0, 7)} yet`);
+    if (Date.now() - start > timeout * 1000) throw new ShipError(`the live site did not show the new build: ${note}`, 1);
+    await wait(interval * 1000);
+  }
+}
+function cmdVerifyLive() {
+  return verifyLive({ url: need('--url'), sha: need('--sha'), timeout: +(flag('--timeout') || 300) }).then((r) => console.log(JSON.stringify(r)));
+}
+
 /** The Discord message body for postDiscord: mentions off, and link previews off (flag 4, SUPPRESS_EMBEDS),
  *  because GitHub unfurls fill the channel. */
 export const webhookBody = (content) => ({ content, allowed_mentions: { parse: [] }, flags: 4 });
@@ -290,7 +313,7 @@ function setOutput(k, v) {
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `${k}=${String(v ?? '').replace(/\r?\n/g, ' ')}\n`);
 }
 
-const COMMANDS = { merge: cmdMerge, 'issue-of': cmdIssueOf, 'wait-publish': cmdWaitPublish, 'verify-itch': cmdVerifyItch, finish: cmdFinish };
+const COMMANDS = { merge: cmdMerge, 'issue-of': cmdIssueOf, 'wait-publish': cmdWaitPublish, 'verify-itch': cmdVerifyItch, 'verify-live': cmdVerifyLive, finish: cmdFinish };
 
 async function main() {
   const fn = COMMANDS[argv[0]];

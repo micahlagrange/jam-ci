@@ -1,0 +1,69 @@
+name: publish-netlify
+
+# Build, test (when the site has an `npm test`) and deploy a website game to Netlify, then check the live site.
+# Called from a game's .github/workflows/publish.yml stub; see README.md. Every push builds; only the default
+# branch deploys to production. The site may live in a folder of a repo that holds several games.
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: 'Commit to build; empty means the triggering commit'
+        type: string
+        default: ''
+      project_dir:
+        description: 'Folder of the site in the repo (its netlify.toml, package.json and netlify/functions)'
+        type: string
+        default: '.'
+      netlify_site_id:
+        description: 'Netlify site id (not a secret)'
+        type: string
+        required: true
+      live_url:
+        description: 'The site URL, ending in /'
+        type: string
+        required: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: ${{ inputs.project_dir }}
+    env:
+      LIVE_URL: ${{ inputs.live_url }}
+      NETLIFY_SITE_ID: ${{ inputs.netlify_site_id }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/checkout@v7
+        with:
+          repository: micahlagrange/jam-ci
+          path: .jam-ci
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Install the site's dependencies (its functions need them to bundle)
+        run: '[ -f package.json ] && npm install --no-audit --no-fund || true'
+      - name: Test
+        run: |
+          if [ -f package.json ] && [ "$(npm pkg get scripts.test)" != "{}" ]; then npm test
+          else echo "no npm test in this site; the deploy is the gate"; fi
+      - name: Stamp the build
+        run: git rev-parse HEAD > build-info.txt
+      - name: Deploy to Netlify
+        if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+        run: |
+          if [ -z "$NETLIFY_AUTH_TOKEN" ]; then
+            echo "::error::NETLIFY_AUTH_TOKEN is not set, so nothing was deployed to Netlify."
+            echo "Nothing deployed: the NETLIFY_AUTH_TOKEN secret is missing." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          npx --yes netlify-cli@17 deploy --prod --dir . --site "$NETLIFY_SITE_ID" --message "$GITHUB_SHA"
+      - name: Verify the live site
+        if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        working-directory: .
+        run: node .jam-ci/scripts/epicpr.mjs verify-live --url "$LIVE_URL" --sha "$(git rev-parse HEAD)" --timeout 300
