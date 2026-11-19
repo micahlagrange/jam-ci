@@ -93,26 +93,31 @@ jobs:
         with:
           name: ${{ env.GAME_NAME }} - love
           path: makelove-build/love/${{ env.GAME_NAME }}.love
+          retention-days: 1
       - uses: actions/upload-artifact@v7
         if: steps.targets.outputs.lovejs == 'true'
         with:
           name: ${{ env.GAME_NAME }} - web
           path: makelove-build/lovejs/${{ env.GAME_NAME }}-lovejs.zip
+          retention-days: 1
       - uses: actions/upload-artifact@v7
         if: steps.targets.outputs.appimage == 'true'
         with:
           name: ${{ env.GAME_NAME }} - linux
           path: makelove-build/appimage/${{ env.GAME_NAME }}.AppImage
+          retention-days: 1
       - uses: actions/upload-artifact@v7
         if: steps.targets.outputs.win64 == 'true'
         with:
           name: ${{ env.GAME_NAME }} - win64
           path: makelove-build/win64/${{ env.GAME_NAME }}-win64.zip
+          retention-days: 1
       - uses: actions/upload-artifact@v7
         if: steps.targets.outputs.macos == 'true'
         with:
           name: ${{ env.GAME_NAME }} - macos
           path: makelove-build/macos/${{ env.GAME_NAME }}-macos.zip
+          retention-days: 1
 
       - name: Install butler
         if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)

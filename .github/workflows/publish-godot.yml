@@ -143,7 +143,7 @@ jobs:
         with:
           name: web
           path: ${{ inputs.project_dir }}/build/web
-          retention-days: 14
+          retention-days: 1
           if-no-files-found: error
 
       # Best effort: a debug APK signed with a throwaway debug keystore, using the runner's Android SDK and JDK 17.
@@ -187,7 +187,7 @@ jobs:
         with:
           name: android
           path: ${{ inputs.project_dir }}/build/android/game-debug.apk
-          retention-days: 14
+          retention-days: 1
           if-no-files-found: ignore
 
       # The front door pulls the `web` artifact every 5 minutes. The live page must serve this exact

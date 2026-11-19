@@ -65,7 +65,7 @@ jobs:
         with:
           name: webgl-${{ github.sha }}
           path: ${{ inputs.build_dir }}
-          retention-days: 7
+          retention-days: 1
 
       # HOMESERVER_DIR is set in the runner's .env; the default is the usual checkout.
       - name: Publish to the live server
