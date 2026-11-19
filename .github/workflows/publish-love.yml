@@ -39,10 +39,14 @@ on:
         description: 'Shell to run after makelove, before upload'
         type: string
         default: ''
+      runs_on:
+        description: 'JSON array of runner labels, e.g. ["self-hosted","base"]; empty means GitHub-hosted ubuntu-24.04. A self-hosted runner has no sudo, so its build tools must already be installed (see the check step).'
+        type: string
+        default: ''
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ inputs.runs_on != '' && fromJSON(inputs.runs_on) || 'ubuntu-24.04' }}
     timeout-minutes: 45
     env:
       GAME_NAME: ${{ inputs.game_name }}
@@ -54,21 +58,24 @@ jobs:
           submodules: true
           # the whole history, so a pre_build step can count commits for a build number
           fetch-depth: 0
-      - uses: actions/setup-python@v7
+      - name: Set up Python (GitHub-hosted runners only)
+        if: runner.environment == 'github-hosted'
+        uses: actions/setup-python@v7
         with:
           python-version: '3.11'
       - name: Read the build targets from makelove.toml
         id: targets
         run: |
-          pip install tomli
+          # tomllib is in the standard library from Python 3.11, so no pip install is needed here
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
-          import tomli
-          t = tomli.load(open('makelove.toml', 'rb')).get('default_targets', ['lovejs'])
+          import tomllib
+          t = tomllib.load(open('makelove.toml', 'rb')).get('default_targets', ['lovejs'])
           print('list=' + ' '.join(t))
           for k in ('lovejs', 'appimage', 'win64', 'macos'):
               print(f'{k}={str(k in t).lower()}')
           PY
-      - name: Install build tools
+      - name: Install build tools (GitHub-hosted runners only)
+        if: runner.environment == 'github-hosted'
         run: |
           if [ '${{ steps.targets.outputs.win64 }}' = true ] || [ '${{ steps.targets.outputs.appimage }}' = true ]; then
             sudo apt-get update
@@ -76,6 +83,20 @@ jobs:
             [ '${{ steps.targets.outputs.appimage }}' = true ] && { sudo apt-get install -y libfuse2t64 || sudo apt-get install -y libfuse2; }
           fi
           pip install '${{ inputs.makelove }}'
+      - name: Check the build tools (self-hosted runners)
+        if: runner.environment == 'self-hosted'
+        # A self-hosted runner has no sudo and installs nothing: every tool must already be there.
+        run: |
+          fail() { echo "::error::$1"; exit 1; }
+          python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' || fail "python3 3.11 or newer is needed on this runner"
+          python3 -c 'import makelove' 2>/dev/null || fail "makelove is not installed for python3 on this runner (install ${{ inputs.makelove }} there)"
+          if [ '${{ steps.targets.outputs.win64 }}' = true ]; then
+            command -v wine >/dev/null || fail "wine is needed for the win64 build on this runner"
+          fi
+          if [ '${{ steps.targets.outputs.appimage }}' = true ]; then
+            ldconfig -p | grep -q 'libfuse.so.2' || fail "libfuse2 is needed for the AppImage build on this runner"
+          fi
+          echo "All build tools are present on this runner."
       - name: Test
         if: inputs.test != ''
         run: ${{ inputs.test }}

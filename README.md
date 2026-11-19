@@ -105,6 +105,20 @@ Godot builds no longer use the self-hosted runner `boogie` (being retired). The 
 
 The web export uses stock Godot's `web_nothreads` template, so it needs no cross-origin-isolation headers and runs on WebGL 2 in any modern browser, phones included (Summer's own web template needs WebGPU and fails in Firefox). The game's `export_presets.cfg` must hold a preset named `Web`. Not ported: `licensed-assets.txt` packs came from a local disk on `boogie` and are unavailable on GitHub runners (the workflow warns if the file exists), and the `/test/` dev-server publish of branch builds is gone; branch builds are only the `web` artifact.
 
+## Running on a self-hosted runner (`runs_on`)
+
+By default every job runs on GitHub's hosted `ubuntu-24.04`, which uses the account's free Actions minutes. A love game can run its build and its epic jobs on a runner the game owns instead (for example a repo-scoped runner on `base`, label `base`) by vending with `--runs-on`:
+
+`node game-jam/scripts/jamci.mjs vend <repo> --kind love ... --runs-on self-hosted,base`
+
+This writes `runs_on: '["self-hosted","base"]'` into the love `publish.yml` stub and into both `epic.yml` jobs (`epic-merge`, `epic-finish`). A game that does not pass the flag gets exactly the stubs it had before, so no other game changes.
+
+- Only `publish-love.yml` takes the option for its build; vending `--runs-on` with any other kind is refused.
+- A self-hosted runner has no sudo, so `publish-love.yml` does not `apt-get` or `setup-python` there. Its check step fails with a plain message when a tool is missing: Python 3.11 or newer, `makelove` importable by `python3`, `wine` for a win64 build, `libfuse2` for an AppImage. Install them on the runner once.
+- The game's own `test` command must also work on that runner (it cannot `sudo` either).
+- The repo must be private (see the Unity section): a self-hosted runner runs the code of every pull request against the repo.
+- The `BUTLER_CREDENTIALS` and `JAM_HUB_APP_KEY` secrets still come from the game repo's GitHub Actions secrets, passed per job. Nothing secret is stored on the runner.
+
 ## Mirroring
 
 `micahlagrange/skills/.github/workflows/mirror-jam-ci.yml` mints a token for the

@@ -25,6 +25,10 @@ on:
         description: 'Where the game is played when it is not on itch (kept so callers do not break; unused)'
         type: string
         default: ''
+      runs_on:
+        description: 'JSON array of runner labels, e.g. ["self-hosted","base"]; empty means GitHub-hosted ubuntu-24.04'
+        type: string
+        default: ''
 
 env:
   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -36,7 +40,7 @@ env:
 
 jobs:
   finish:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ inputs.runs_on != '' && fromJSON(inputs.runs_on) || 'ubuntu-24.04' }}
     timeout-minutes: 70
     steps:
       - uses: actions/checkout@v7

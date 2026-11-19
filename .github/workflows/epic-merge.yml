@@ -19,10 +19,14 @@ on:
         description: 'The commit the approval was given on'
         type: string
         required: true
+      runs_on:
+        description: 'JSON array of runner labels, e.g. ["self-hosted","base"]; empty means GitHub-hosted ubuntu-24.04'
+        type: string
+        default: ''
 
 jobs:
   merge:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ inputs.runs_on != '' && fromJSON(inputs.runs_on) || 'ubuntu-24.04' }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
