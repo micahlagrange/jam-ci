@@ -36,7 +36,7 @@ on:
         type: string
         default: ''
       post_build:
-        description: 'Shell to run after makelove, before upload'
+        description: 'Shell to run after makelove, before the itch push'
         type: string
         default: ''
       runs_on:

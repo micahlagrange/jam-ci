@@ -1,20 +1,17 @@
 name: publish-godot
 
 # Build a Godot game for the web (WebGL 2, no threads) on a GitHub-hosted Linux
-# runner and upload it as the `web` artifact. Called from a game's
-# .github/workflows/publish.yml stub; see README.md. CI no longer copies the
-# build anywhere: the public front door (`base`) PULLS builds, its scheduler runs
-# `gh run download` for the newest successful run (every 5 minutes).
-#
-# Artifact contract: name `web`, files at the artifact root (index.html, index.js,
-# index.wasm, index.pck, ... and build-info.txt whose first line is the full commit
-# SHA that was built). Every push, on any branch, uploads it. On the default
+# runner, as a check that the export is clean. Called from a game's
+# .github/workflows/publish.yml stub; see README.md. CI uploads no artifacts and
+# copies the build nowhere: the public front door (`base`) builds the same commit
+# itself (webbuild.mjs, every 5 minutes) and serves it at
+# https://playtest.mc.toadshaman.com/<game>/latest/ with a build-info.txt whose
+# first line is the full commit SHA. On the default
 # branch only, the job then polls <live_url>build-info.txt until the live site
 # serves this commit (or fails after 15 minutes).
 #
-# There is no test suite: a clean export is the gate. If the project has an
-# "Android" export preset a debug APK is built too, as the `android` artifact;
-# an APK failure never blocks the web build.
+# There is no test suite: a clean export is the gate. No APK is built any more
+# (it was only ever an artifact); the `android` input is accepted and ignored.
 
 on:
   workflow_call:
@@ -36,13 +33,13 @@ on:
         type: string
         default: Web
       android:
-        description: 'Also build a debug APK when the project has an Android preset'
+        description: 'Ignored (no APK is built now that nothing is uploaded); kept so old stubs still load'
         type: boolean
         default: true
       live_url:
-        description: 'Public URL of the game latest path (ends with /); polled after upload on the default branch'
+        description: 'Public URL of the game latest path (ends with /); polled on the default branch'
         type: string
-        default: https://base.junco-diatonic.ts.net:10000/
+        default: https://playtest.mc.toadshaman.com/
 
 
 # A queued build waits instead of killing a running one.
@@ -77,9 +74,9 @@ jobs:
           path: |
             ~/godot-ci/${{ inputs.godot_version }}
             ~/.local/share/godot/export_templates/${{ inputs.godot_version }}.stable
-          key: godot-linux-${{ inputs.godot_version }}-v1
+          key: godot-linux-${{ inputs.godot_version }}-web-v2
 
-      # The editor and only the templates we use: Web (no threads) and Android.
+      # The editor and only the template we use: Web (no threads).
       - name: Install Godot ${{ inputs.godot_version }}
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
@@ -93,8 +90,7 @@ jobs:
           unzip -q -o "$dl/editor.zip" -d "$root"
           curl -sSL --fail --retry 3 -o "$dl/templates.tpz" "$base/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
           unzip -q -o -j "$dl/templates.tpz" \
-            templates/web_nothreads_release.zip templates/android_debug.apk templates/android_release.apk \
-            templates/android_source.zip templates/version.txt -d "$tpl"
+            templates/web_nothreads_release.zip templates/version.txt -d "$tpl"
           rm -rf "$dl"
           ls -l "$tpl"
 
@@ -139,58 +135,7 @@ jobs:
       - name: Stamp the build
         run: printf '%s\n' '${{ steps.commit.outputs.sha }}' > "$PROJECT_DIR/build/web/build-info.txt"
 
-      - uses: actions/upload-artifact@v7
-        with:
-          name: web
-          path: ${{ inputs.project_dir }}/build/web
-          retention-days: 1
-          if-no-files-found: error
-
-      # Best effort: a debug APK signed with a throwaway debug keystore, using the runner's Android SDK and JDK 17.
-      - name: Export Android debug APK
-        if: inputs.android
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          if ! grep -q '^name="Android"' "$PROJECT_DIR/export_presets.cfg" 2>/dev/null; then
-            echo "no Android preset"; exit 0
-          fi
-          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
-          jdk="${JAVA_HOME_17_X64:-}"
-          if [ ! -d "$sdk" ] || [ -z "$jdk" ]; then echo "Android SDK or JDK 17 missing"; exit 1; fi
-          ks="$HOME/.android/debug.keystore"
-          mkdir -p "$HOME/.android"
-          [ -f "$ks" ] || "$jdk/bin/keytool" -genkeypair -v -keystore "$ks" -alias androiddebugkey \
-            -storepass android -keypass android -keyalg RSA -keysize 2048 -validity 10000 \
-            -dname "CN=Android Debug,O=Android,C=US"
-          minor="${GODOT_VERSION%.*}"
-          cfg="$HOME/.config/godot/editor_settings-${minor}.tres"
-          mkdir -p "$(dirname "$cfg")"
-          {
-            echo '[gd_resource type="EditorSettings" format=3]'
-            echo
-            echo '[resource]'
-            echo "export/android/android_sdk_path = \"$sdk\""
-            echo "export/android/java_sdk_path = \"$jdk\""
-            echo "export/android/debug_keystore = \"$ks\""
-            echo 'export/android/debug_keystore_user = "androiddebugkey"'
-            echo 'export/android/debug_keystore_pass = "android"'
-          } > "$cfg"
-          out="$PROJECT_DIR/build/android"
-          rm -rf "$out"; mkdir -p "$out"
-          out_abs="$(cd "$out" && pwd)"
-          (cd "$PROJECT_DIR" && "$GODOT" --headless --export-debug Android "$out_abs/game-debug.apk")
-          [ -f "$out/game-debug.apk" ] || { echo "no APK produced"; exit 1; }
-
-      - uses: actions/upload-artifact@v7
-        if: inputs.android
-        with:
-          name: android
-          path: ${{ inputs.project_dir }}/build/android/game-debug.apk
-          retention-days: 1
-          if-no-files-found: ignore
-
-      # The front door pulls the `web` artifact every 5 minutes. The live page must serve this exact
+      # The front door builds this commit itself within 5 minutes. The live page must serve this exact
       # commit, or the run fails and the epic reports ship-failed.
       - name: Verify the live build
         if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
